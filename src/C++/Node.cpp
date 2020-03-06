@@ -25,7 +25,7 @@ double Node::calculateDistance(double train_example_weights[])
 {
 	float total = 0.0;
 	int i = 0;
-	while (train_example_weights[i])
+	while (i < 3)
 	{
 		total = total + pow(train_example_weights[i] - _node_weights[i], 2);
 		i++;

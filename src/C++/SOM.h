@@ -1,4 +1,5 @@
 #include "Node.h"
+#include <limits>
 
 class SOM
 {
@@ -13,7 +14,6 @@ public:
 	void save_weights(std::string path_to_weights_file);
 	SOM(int width, int height, bool hex, int numFeatures);
 	void train_data(double *trainData[], int num_examples, int iterations, double initial_learning_rate);
-	Node* find_bmu(double train_example_weights[]);
 	double* randWeight(int numFeatures);
 	void normalizeData(double *trainData[], int num_examples);
 };

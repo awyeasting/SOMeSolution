@@ -1,28 +1,6 @@
 #include "pch.h"
 
 /*
-	Returns a pointer to the best mactching unit from the Map of Nodes.
-*/
-Node* SOM::find_bmu(double train_example_weights[])
-{
-	double highest_distance = 10000;
-	Node *returnNode = NULL;
-	for (int i = 0; i < _width; i++)
-	{
-		for (int j = 0; j < _height; j++)
-		{
-			double temp_dist = two_dimension_map[i][j].calculateDistance(train_example_weights);
-			if (temp_dist < highest_distance)
-			{
-				highest_distance = temp_dist;
-				returnNode = &two_dimension_map[i][j];
-			}
-		}
-	}
-	return returnNode;
-}
-
-/*
 	The training function to be called with just parameters to file. 
 	Under Construction. Not currently reading in inputs correctly.
 */
@@ -94,7 +72,22 @@ void SOM::train_data(double *trainData[], int num_examples, int iterations, doub
 		//For each example in our training set.
 		while (train_exam < num_examples)
 		{
-			Node *bmu = find_bmu(trainData[train_exam]);
+			int bmu_x, bmu_y;
+			double bmu_dist = DBL_MAX;
+
+			for (int i = 0; i < _width; i++)
+			{
+				for (int j = 0; j < _height; j++)
+				{
+					double temp_dist = two_dimension_map[i][j].calculateDistance(trainData[train_exam]);
+					if (temp_dist < bmu_dist)
+					{
+						bmu_dist = temp_dist;
+						bmu_x = i;
+						bmu_y = j;
+					}
+				}
+			}
 			
 			neighborhood_radius = initial_map_radius * exp(-(double(iterations_counter) / time_constant));
 
@@ -103,10 +96,10 @@ void SOM::train_data(double *trainData[], int num_examples, int iterations, doub
 				for (int j = 0; j < _height; j++)
 				{
 					//Loops through every node in the array and calculates the euclidean squared distance away
-					double euclid_away = (two_dimension_map[i][j]._x_coord - bmu->_x_coord) *
-						(two_dimension_map[i][j]._x_coord - bmu->_x_coord) +
-						(two_dimension_map[i][j]._y_coord - bmu->_y_coord) *
-						(two_dimension_map[i][j]._y_coord - bmu->_y_coord);
+					double euclid_away = (i - bmu_x) *
+						(i - bmu_x) +
+						(j - bmu_y) *
+						(j - bmu_y);
 
 
 					double widthSq = neighborhood_radius * neighborhood_radius;
@@ -114,11 +107,11 @@ void SOM::train_data(double *trainData[], int num_examples, int iterations, doub
 					//Compares the squared euclid distance with the current iteration radius squared. 
 					//If the euclidean dist away is less than neighborhood squared, calculate influence and update
 					//the nodes weights.
-					if (euclid_away < widthSq)
-					{
-						double influence = exp(-(euclid_away) / (2 * widthSq));
-						two_dimension_map[i][j].update_weights(trainData[train_exam], current_learning, influence, _n_dimensions);
-					}
+					//if (euclid_away < widthSq)
+					//{
+					double influence = exp(-(euclid_away) / (2 * widthSq));
+					two_dimension_map[i][j].update_weights(trainData[train_exam], current_learning, influence, _n_dimensions);
+					//}
 				}	
 			}
 			train_exam++;
