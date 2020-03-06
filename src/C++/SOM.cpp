@@ -1,45 +1,22 @@
 #include "pch.h"
 
-/*
-	The training function to be called with just parameters to file. 
-	Under Construction. Not currently reading in inputs correctly.
-*/
-void SOM::train_function(std::string path_to_data, std::string path_to_param)
-{
-	std::ifstream instream(path_to_data);
-	int num_examples = 0;
-	double disc_value = 0.0;
-	instream >> num_examples;
-	
-	double **newData = new double*[num_examples];
-	for (int i = 0; i < num_examples; i++)
-	{
-		newData[i] = new double[3];
-	}
+/* SOM Constructor
+Desc: Intitializes a SOM with arguments:
+	width - int width of map
+	height - int height of map
+	hex - bool optional ability to intialize hexagonal map. [HEX OPTION NOT IMPLEMENTED NEED]
 
-	for (int i = 0; i < num_examples; i++)
-	{
-		for (int features = 0; features < 3; features++)
-		{
-			instream >> disc_value;
-			newData[i][features] = disc_value;
-		}
-	}
-	train_data(newData, num_examples, 10000, .01);
-}
-
-/*
-	Normalizes the data. Right now hardcoded to normalize color data.
-	In future will be changed to normalize to normalize by feature.
 */
-void SOM::normalizeData(double *trainData[], int num_examples)
+SOM::SOM(int width, int height)
 {
-	for (int i = 0; i < num_examples; i++)
+	_width = width;
+	_height = height;
+
+	// Initialize map randomly
+	_weights = new double**[_width];
+	for (int i = 0; i < _width; i++)
 	{
-		for (int j = 0; j < 3; j++)
-		{
-			trainData[i][j] = trainData[i][j] / 255;
-		}
+		_weights[i] = new double*[height];
 	}
 }
 
@@ -47,27 +24,31 @@ void SOM::normalizeData(double *trainData[], int num_examples)
 	The main function for training. takes in the training data with a pointer to an array of doubles.
 	also takes in the arguments of total number of iterations and initial learning rate.
 */
-void SOM::train_data(double *trainData[], int num_examples, int iterations, double initial_learning_rate)
+void SOM::train_data(double *trainData[], int num_examples, int dimensions, int iterations, double initial_learning_rate)
 {
+	// Randomly initialize weights
+	_dimensions = dimensions;
+	for (int i = 0; i < _width; i++) {
+		for (int j = 0; j < _height; j++) {
+			double* randWeights = randWeight(_dimensions);
+			_weights[i][j] = randWeights;
+		}
+	}
+
 	int iterations_counter = 0;
 	double current_learning = 0.0;
 	double neighborhood_radius = 0.0;
-	double initial_map_radius;
-
-	if (_width > _height)
-		initial_map_radius = _width / 2;
-	else
-		initial_map_radius = _height / 2;
+	double initial_map_radius = _width < _height ? ((double)_width) / 2.0 : ((double)_height) / 2.0;
 
 	double time_constant = double(iterations) / log(initial_map_radius);
 
 	normalizeData(trainData, num_examples);
-	
+
 	//Main Training Loop
 	while (iterations_counter < iterations)
 	{
 		current_learning = initial_learning_rate * exp(-double(iterations_counter) / time_constant);
-		
+
 		int train_exam = 0;
 		//For each example in our training set.
 		while (train_exam < num_examples)
@@ -79,7 +60,7 @@ void SOM::train_data(double *trainData[], int num_examples, int iterations, doub
 			{
 				for (int j = 0; j < _height; j++)
 				{
-					double temp_dist = two_dimension_map[i][j].calculateDistance(trainData[train_exam]);
+					double temp_dist = EucDist(_weights[i][j], trainData[train_exam]);
 					if (temp_dist < bmu_dist)
 					{
 						bmu_dist = temp_dist;
@@ -88,7 +69,7 @@ void SOM::train_data(double *trainData[], int num_examples, int iterations, doub
 					}
 				}
 			}
-			
+
 			neighborhood_radius = initial_map_radius * exp(-(double(iterations_counter) / time_constant));
 
 			for (int i = 0; i < _width; i++)
@@ -110,15 +91,15 @@ void SOM::train_data(double *trainData[], int num_examples, int iterations, doub
 					//if (euclid_away < widthSq)
 					//{
 					double influence = exp(-(euclid_away) / (2 * widthSq));
-					two_dimension_map[i][j].update_weights(trainData[train_exam], current_learning, influence, _n_dimensions);
+					updateNodeWeights(i, j, trainData[train_exam], current_learning, influence);
 					//}
-				}	
+				}
 			}
 			train_exam++;
 		}
 
 		iterations_counter++;
-		
+
 	}
 }
 
@@ -134,17 +115,43 @@ void SOM::save_weights(std::string path_to_weights_file)
 	std::string temp = path_to_weights_file;
 	std::ofstream out;
 	out.open(path_to_weights_file);
-	out << _width << " "<< _height << std::endl;
+	out << _width << " " << _height << std::endl;
 	for (int i = 0; i < _width; i++)
 	{
 		for (int j = 0; j < _height; j++)
 		{
-			out << two_dimension_map[i][j]._node_weights[0] << " " 
-				<< two_dimension_map[i][j]._node_weights[1] << " "
-				<< two_dimension_map[i][j]._node_weights[2] << std::endl;
+			for (int k = 0; k < _dimensions; k++) {
+				if (k != 0) {
+					out << " ";
+				}
+				out << _weights[i][j][k];
+			}
+			out << std::endl;
 		}
 	}
 	out.close();
+}
+
+/*
+	Normalizes the data. Right now hardcoded to normalize color data.
+	In future will be changed to normalize to normalize by feature.
+*/
+void SOM::normalizeData(double **trainData, int num_examples)
+{
+	for (int i = 0; i < num_examples; i++)
+	{
+		for (int j = 0; j < _dimensions; j++)
+		{
+			trainData[i][j] = trainData[i][j] / 255;
+		}
+	}
+}
+
+void SOM::updateNodeWeights(int x, int y, double* example, double learning_rate, double influence) {
+	for (int k = 0; k < _dimensions; k++)
+	{
+		_weights[x][y][k] += influence * learning_rate * (example[k] - _weights[x][y][k]);
+	}
 }
 
 //Returns a vector of size, numFeatures, with values between 0 and 1.
@@ -160,35 +167,13 @@ double* SOM::randWeight(int numFeatures)
 	return retVector;
 }
 
-/* SOM Constructor
-Desc: Intitializes a SOM with arguments:
-	width - int width of map
-	height - int height of map
-	hex - bool optional ability to intialize hexagonal map. [HEX OPTION NOT IMPLEMENTED NEED]
-
+/*
+	Calculates the euclidean distance between two vectors
 */
-SOM::SOM(int width, int height, bool hex, int numFeatures)
-{
-	_width = width;
-	_height = height;
-	_hex = hex;
-	_n_dimensions = 3;
-	//Allocates the 2d pointer of nodes with size width x height
-	two_dimension_map = new Node* [width];
-	for (int i = 0; i < width; i++)
-	{
-		two_dimension_map[i] = new Node[height];
+double SOM::EucDist(double* v1, double* v2) {
+	double total = 0.0;
+	for (int i = 0; i < _dimensions; i++) {
+		total += (v1[i] - v2[i])*(v1[i] - v2[i]);
 	}
-
-	//Intitializes the 2d matrix of nodes with their respective coordinates.
-	for (int node_row = 0; node_row < width; node_row++)
-	{
-		for (int col = 0; col < height; col++)
-		{
-			double* randWeights = randWeight(numFeatures);
-			two_dimension_map[node_row][col]._x_coord = col;
-			two_dimension_map[node_row][col]._y_coord = node_row;
-			two_dimension_map[node_row][col].set_weights(randWeights);
-		}
-	}
+	return sqrt(total);
 }
