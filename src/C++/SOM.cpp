@@ -52,7 +52,7 @@ void SOM::train_data(double *trainData[], unsigned int num_examples, unsigned in
 		for (int example = 0; example < num_examples; example++) {
 			// Find the BMU for the current example
 			int bmu_x, bmu_y;
-			double bmu_dist = DBL_MAX;
+			double bmu_dist = std::numeric_limits<double>::max();
 			for (int i = 0; i < _width; i++)
 			{
 				for (int j = 0; j < _height; j++)
@@ -163,8 +163,8 @@ void SOM::normalizeData(double **trainData, int num_examples)
 	this->_featureMins = new double[this->_dimensions];
 	for (int j = 0; j < this->_dimensions; j++)
 	{
-		this->_featureMaxes[j] = -DBL_MAX;
-		this->_featureMins[j] = DBL_MAX;
+		this->_featureMaxes[j] = -std::numeric_limits<double>::max();
+		this->_featureMins[j] = std::numeric_limits<double>::max();
 		for (int i = 0; i < num_examples; i++)
 		{
 			if (trainData[i][j] > this->_featureMaxes[j]) {
