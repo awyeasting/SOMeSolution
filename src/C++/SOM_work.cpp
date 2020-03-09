@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 
+#include "commandLine.h"
 #include "SOM.h"
 
 /*
@@ -60,13 +61,51 @@ double** loadTrainingData(std::string trainDataFileName, unsigned int& rows, uns
 	return res;
 }
 
-int main()
+
+
+int main(int argc, char *argv[])
 {
-	unsigned int width = 15, height = 15;
+	std::unordered_map<std::string, std::string> initiators;
+
+	std::string trainingIterations;
+	std::string inputFile;
+	std::string source = "train.txt";
+	std::string outputFile;
+	std::string squareNeurons;
+	std::string display;
 	int epochs = 1000;
+	unsigned int width = 15, height = 15;
+
+	if(argc > 4)
+	{
+		setHashMap(initiators, argv, argc);
+		setInitialValues(initiators, &trainingIterations, &outputFile, &inputFile, &squareNeurons, &display);
+		if(trainingIterations != "")
+			epochs = std::stoi(trainingIterations);
+	}
+	else if(argc < 4)
+	{
+		if(strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)
+		{
+			help();
+
+			return 0;
+		}
+		else if(strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0)
+		{
+			showVersion();
+
+			return 0;
+		}
+	}
+
+	source = argv[argc - 1];
+	height = atoi(argv[argc - 2]);
+	width = atoi(argv[argc - 3]);
+
 	double learningRate = 0.1;
-	std::string trainingInFileName("train.txt");
-	std::string weightsOutFileName("outfile.txt");
+	std::string trainingInFileName(source);
+	std::string weightsOutFileName(outputFile);
 
 	// Load training data
 	unsigned int n, d;
