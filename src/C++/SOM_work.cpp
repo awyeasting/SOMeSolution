@@ -13,6 +13,10 @@
 double** loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsigned int& cols) {
 	// Open file
 	std::ifstream in(trainDataFileName, std::ifstream::in);
+	if (!in.is_open()) {
+		std::cout << "Invalid training data file '" << trainDataFileName << "'" << std::endl;
+		return NULL;
+	}
 
 	// Read the first line to obtain the number of columns (dimensions) in the training data
 	std::string line;
@@ -61,55 +65,77 @@ double** loadTrainingData(std::string trainDataFileName, unsigned int& rows, uns
 	return res;
 }
 
-
-
 int main(int argc, char *argv[])
 {
-	std::unordered_map<std::string, std::string> initiators;
-
-	std::string trainingIterations;
-	std::string inputFile;
-	std::string source = "train.txt";
-	std::string outputFile;
-	std::string squareNeurons;
-	std::string display;
+	std::string trainingFileName = "";
+	std::string outFileName = "weights.txt";
 	int epochs = 1000;
-	unsigned int width = 15, height = 15;
-
-	if(argc > 4)
-	{
-		setHashMap(initiators, argv, argc);
-		setInitialValues(initiators, &trainingIterations, &outputFile, &inputFile, &squareNeurons, &display);
-		if(trainingIterations != "")
-			epochs = std::stoi(trainingIterations);
-	}
-	else if(argc < 4)
-	{
-		if(strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)
-		{
-			help();
-
-			return 0;
-		}
-		else if(strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0)
-		{
-			showVersion();
-
-			return 0;
-		}
-	}
-
-	source = argv[argc - 1];
-	height = atoi(argv[argc - 2]);
-	width = atoi(argv[argc - 3]);
-
+	unsigned int width = 8, height = 8;
 	double learningRate = 0.1;
-	std::string trainingInFileName(source);
-	std::string weightsOutFileName(outputFile);
+
+	int posArgPos = 0;
+	for(int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+			std::cout << "Positional Arguments:" << std::endl
+			<< "\t(int)    SOM width" << std::endl
+			<< "\t(int)    SOM height" << std::endl
+			<< "\t(string) Training data" << std::endl;
+			std::cout << "Options:" << std::endl
+			<< "\t(string) -o --out    Path of the output file of node weights" << std::endl
+			<< "\t(int)    -e --epochs Number of epochs used in training" << std::endl;
+			return 0;
+		} else if (strcmp(argv[i], "--out") == 0 || strcmp(argv[i], "-o") == 0) {
+			if (i + 1 < argc) {
+				outFileName = std::string(argv[i+1]);
+				i++;
+			} else {
+				std::cout << "If the --out option is used a valid outfile path should be specified." << std::endl;
+			}
+		} else if (strcmp(argv[i], "--epochs") == 0 || strcmp(argv[i], "-e") == 0) {
+			if (i + 1 < argc) {
+				try {
+					epochs = std::stoi(argv[i+1]);
+				} catch (int e) {
+					std::cout << "Invalid epochs argument." << std::endl;
+				}
+				i++;
+			} else {
+				std::cout << "If the --epochs option is used a valid number of epochs should be specified." << std::endl;
+			}
+		}else {
+			// Positional arguments
+			// width height trainingdatafile.txt
+			switch(posArgPos) {
+				case 0:
+					try {
+						width = std::stoi(argv[i]);
+					} catch (int e) {
+						std::cout << "Invalid width argument." << std::endl;
+					}
+					break;
+				case 1:
+					try {
+						height = std::stoi(argv[i]);
+					} catch (int e) {
+						std::cout << "Invalid height argument." << std::endl;
+					}
+					break;
+				case 2:
+					trainingFileName = std::string(argv[i]);
+					break;
+				default:
+					std::cout << "Unrecognized positional argument, '" << argv[i] << "'" << std::endl;
+			}
+			posArgPos++;
+		}
+	}
 
 	// Load training data
 	unsigned int n, d;
-	double **trainData = loadTrainingData(trainingInFileName, n, d);
+	double **trainData = loadTrainingData(trainingFileName, n, d);
+	if (trainData == NULL) {
+		return 0;
+	}
 
 	// Create untrained SOM
 	SOM newSom = SOM(width, height);
@@ -122,9 +148,10 @@ int main(int argc, char *argv[])
 	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
 
 	// Save the SOM's weights
-	std::ofstream outFile(weightsOutFileName, std::ofstream::out);
-	newSom.save_weights(outFile);
-	outFile.close();
-
-	std::cout << "SOM saved to " << weightsOutFileName << std::endl;
+	std::ofstream outFile(outFileName, std::ofstream::out);
+	if (outFile.is_open()) {
+		newSom.save_weights(outFile);
+		outFile.close();
+		std::cout << "SOM saved to " << outFileName << std::endl;
+	}
 }
