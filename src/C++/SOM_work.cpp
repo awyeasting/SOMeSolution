@@ -3,6 +3,7 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <cstring>
 
 #include "SOM.h"
 
