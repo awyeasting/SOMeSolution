@@ -53,6 +53,7 @@ void SOM::train_data(double *trainData[], unsigned int num_examples, unsigned in
 			// Find the BMU for the current example
 			int bmu_x, bmu_y;
 			double bmu_dist = std::numeric_limits<double>::max();
+			
 			for (int i = 0; i < _width; i++)
 			{
 				for (int j = 0; j < _height; j++)
@@ -68,6 +69,7 @@ void SOM::train_data(double *trainData[], unsigned int num_examples, unsigned in
 			}
 
 			// Update weights for every node
+			#pragma omp parallel for
 			for (int i = 0; i < _width; i++)
 			{
 				for (int j = 0; j < _height; j++)

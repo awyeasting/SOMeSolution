@@ -6,6 +6,7 @@
 #include <sstream>
 #include <vector>
 #include <math.h>
+#include <omp.h>
 
 class SOM
 {
