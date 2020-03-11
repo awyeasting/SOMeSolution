@@ -4,7 +4,6 @@
 #include <vector>
 #include <string>
 
-#include "commandLine.h"
 #include "SOM.h"
 
 /*
