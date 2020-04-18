@@ -23,7 +23,7 @@ private:
 	unsigned int _width;
 	unsigned int _height;
 	unsigned int _dimensions;
-	double*** _weights;
+	double* _weights;
 	double* _featureMaxes;
 	double* _featureMins;
 
@@ -31,7 +31,8 @@ private:
 
 	void normalizeData(double **trainData, int num_exampless);
 	void updateNodeWeights(int x, int y, double* example, double learning_rate, double influence);
-	static double* randWeight(int numFeatures);
+	static double randWeight();
+	int calcIndex(int x, int y, int d);
 	double EucDist(double* v1, double* v2);
 };
 

@@ -7,13 +7,6 @@ SOM::SOM(unsigned int width, unsigned int height)
 {
 	this->_width = width;
 	this->_height = height;
-
-	// Initialize map randomly
-	this->_weights = new double**[_width];
-	for (int i = 0; i < _width; i++)
-	{
-		this->_weights[i] = new double*[height];
-	}
 }
 
 /*
@@ -28,19 +21,21 @@ SOM::SOM(std::istream &in) {
 */
 void SOM::train_data(double *trainData[], unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate)
 {
-	// Randomly initialize weights
+	normalizeData(trainData, num_examples);
+
+	// Randomly initialize codebook
 	this->_dimensions = dimensions;
+	this->_weights = (double *)malloc(_width * _height * _dimensions * sizeof(double));
 	for (int i = 0; i < _width; i++) {
 		for (int j = 0; j < _height; j++) {
-			double* randWeights = SOM::randWeight(_dimensions);
-			this->_weights[i][j] = randWeights;
+			for (int d = 0; d < _dimensions; d++) {
+				this->_weights[calcIndex(i,j,d)] = randWeight();
+			}
 		}
 	}
 
 	double initial_map_radius = _width < _height ? ((double)_width) / 2.0 : ((double)_height) / 2.0;
 	double time_constant = double(epochs) / log(initial_map_radius);
-
-	normalizeData(trainData, num_examples);
 
 	// Loop through all epochs
 	double learning_rate, neighborhood_radius;
@@ -48,9 +43,9 @@ void SOM::train_data(double *trainData[], unsigned int num_examples, unsigned in
 		learning_rate = initial_learning_rate * exp(-double(epoch) / time_constant);
 		neighborhood_radius = initial_map_radius * exp(-(double(epoch) / time_constant));
 
-		// Loop through all training data points
+		//Loop through all training data points
 		for (int example = 0; example < num_examples; example++) {
-			// Find the BMU for the current example
+			//Find the BMU for the current example
 			int bmu_x, bmu_y;
 			double bmu_dist = std::numeric_limits<double>::max();
 			
@@ -58,7 +53,7 @@ void SOM::train_data(double *trainData[], unsigned int num_examples, unsigned in
 			{
 				for (int j = 0; j < _height; j++)
 				{
-					double temp_dist = EucDist(_weights[i][j], trainData[example]);
+					double temp_dist = EucDist(_weights + calcIndex(i,j,0), trainData[example]);
 					if (temp_dist < bmu_dist)
 					{
 						bmu_dist = temp_dist;
@@ -103,7 +98,7 @@ void SOM::save_weights(std::ostream &out)
 				if (k != 0) {
 					out << " ";
 				}
-				out << this->_weights[i][j][k];
+				out << this->_weights[calcIndex(i,j,k)];
 			}
 			out << std::endl;
 		}
@@ -117,12 +112,6 @@ void SOM::load_weights(std::istream &in)
 {
 	// Load SOM dimensions first
 	in >> this->_width >> this->_height;
-
-	// Generate 3d array for storing the node weights
-	this->_weights = new double**[this->_width];
-	for (int i = 0; i < _width; i++) {
-		_weights[i] = new double*[this->_height];
-	}
 
 	// Read first line of matrix to get the dimensionality of weights
 	this->_dimensions = 0;
@@ -138,18 +127,17 @@ void SOM::load_weights(std::istream &in)
 	}
 
 	// Put first line of matrix into an array in the 3d weights array
-	this->_weights[0][0] = new double[this->_dimensions];
+	this->_weights = new double[_width * _height * _dimensions];
 	for (int k = 0; k < this->_dimensions; k++) {
-		_weights[0][0][this->_dimensions - k - 1] = line1.back();
+		_weights[calcIndex(0,0,_dimensions - k - 1)] = line1.back();
 		line1.pop_back();
 	}
 
 	// Read the rest of the 3d array in
 	for (int i = 0; i < this->_width; i++) {
 		for (int j = (i == 0 ? 1 : 0); j < this->_height; j++) {
-			this->_weights[i][j] = new double[this->_dimensions];
 			for (int k = 0; k < _dimensions; k++) {
-				in >> this->_weights[i][j][k];
+				in >> this->_weights[calcIndex(i,j,k)];
 			}
 		}
 	}
@@ -186,25 +174,22 @@ void SOM::normalizeData(double **trainData, int num_examples)
 	Update a node's weights to better match a given example
 */
 void SOM::updateNodeWeights(int x, int y, double* example, double learning_rate, double influence) {
-	for (int k = 0; k < this->_dimensions; k++)
+	for (int d = 0; d < this->_dimensions; d++)
 	{
-		this->_weights[x][y][k] += influence * learning_rate * (example[k] - this->_weights[x][y][k]);
+		this->_weights[calcIndex(x,y,d)] += influence * learning_rate * (example[d] - this->_weights[calcIndex(x,y,d)]);
 	}
 }
 
 /*
 	Generate a vector of size numFeatures
 */
-double* SOM::randWeight(int numFeatures)
+double SOM::randWeight()
 {
-	double* retVector = new double[numFeatures];
-	double temp_rand_val;
-	for (int i = 0; i < numFeatures; i++)
-	{
-		temp_rand_val = ((double)rand() / (RAND_MAX));
-		retVector[i] = temp_rand_val;
-	}
-	return retVector;
+	return (double)rand() / (RAND_MAX);
+}
+
+int SOM::calcIndex(int x, int y, int d) {
+	return (x*_height + y)*_dimensions + d;
 }
 
 /*
