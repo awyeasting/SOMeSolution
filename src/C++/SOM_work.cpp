@@ -10,7 +10,7 @@
 /*
 	Load a set of training data from a given filename
 */
-double** loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsigned int& cols) {
+double* loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsigned int& cols) {
 	// Open file
 	std::ifstream in(trainDataFileName, std::ifstream::in);
 	if (!in.is_open()) {
@@ -55,12 +55,17 @@ double** loadTrainingData(std::string trainDataFileName, unsigned int& rows, uns
 		}
 	}
 
-	// Convert vector of arrays into 2d array
+	// Convert vector of arrays into 1d array of examples
 	rows = lines.size();
-	double** res = new double*[rows];
+	double* res = new double[rows * cols];
 	for (i = 0; i < rows; i++) {
-		res[rows - i - 1] = lines.back();
+		double* temp = lines.back();
+		int rowMod = (rows-i-1)*cols;
+		for (int j = 0; j < cols; j++) {
+			res[rowMod + j] = temp[j];
+		}
 		lines.pop_back();
+		free(temp);
 	}
 	return res;
 }
@@ -132,7 +137,7 @@ int main(int argc, char *argv[])
 
 	// Load training data
 	unsigned int n, d;
-	double **trainData = loadTrainingData(trainingFileName, n, d);
+	double *trainData = loadTrainingData(trainingFileName, n, d);
 	if (trainData == NULL) {
 		return 0;
 	}
