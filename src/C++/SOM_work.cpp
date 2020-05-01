@@ -79,6 +79,7 @@ int main(int argc, char *argv[])
 	double learningRate = 0.1;
 
 	int posArgPos = 0;
+	std::cout << "Reading program arguments...\n" << std::flush;
 	for(int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
 			std::cout << "Positional Arguments:" << std::endl
@@ -136,6 +137,7 @@ int main(int argc, char *argv[])
 	}
 
 	// Load training data
+	std::cout << "Loading train data...\n"<< std::flush;
 	unsigned int n, d;
 	double *trainData = loadTrainingData(trainingFileName, n, d);
 	if (trainData == NULL) {
@@ -146,15 +148,18 @@ int main(int argc, char *argv[])
 	SOM newSom = SOM(width, height);
 
 	// Train SOM and time training
+	std::cout << "Training SOM...\n"<< std::flush;
 	auto start = std::chrono::high_resolution_clock::now();
 	newSom.train_data(trainData, n, d, epochs, learningRate);
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(stop - start);
-	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
+	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl << std::flush;
 
 	// Save the SOM's weights
+	std::cout << "Getting outfile handle...\n"<< std::flush;
 	std::ofstream outFile(outFileName, std::ofstream::out);
 	if (outFile.is_open()) {
+		std::cout << "Saving SOM...\n";
 		newSom.save_weights(outFile);
 		outFile.close();
 		std::cout << "SOM saved to " << outFileName << std::endl;

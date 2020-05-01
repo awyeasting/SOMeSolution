@@ -37,75 +37,108 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 
 	// Calc initial map radius
 	double initial_map_radius = _width < _height ? ((double)_width) / 2.0 : ((double)_height) / 2.0;
+	double time_constant = double(epochs) / log(initial_map_radius);
 
-	// Find BMUs for every input instance
-	// D = X_sq - 2X^TM + M_sq
-	// D (xdn * nn)
-	double* D = (double *)malloc(num_examples * _width * _height);
+	double* D = (double *)malloc(num_examples * _width * _height * sizeof(double));
+	double* m_sq = (double *)malloc(_width * _height * sizeof(double));
+	double* x_sq = (double *)malloc(num_examples * sizeof(double));
+	int* BMUs = (int *)malloc(num_examples * sizeof(int));
+	double* H = (double *)malloc(num_examples * _width * _height * sizeof(double));
+	double* numerators = (double *)malloc(_width * _height * _dimensions * sizeof(double));
+	double* denominators = (double *)malloc(_width * _height * sizeof(double));
 
-	// Calc m_sq
-	double* m_sq = (double *)malloc(_width * _height);
-	SqDists(this->_weights, _width * _height, _dimensions, m_sq);
+	double neighborhood_radius;
+	for(int epoch = 0; epoch < epochs; epoch++) {
+		//learning_rate = initial_learning_rate * exp(-double(epoch)/time_constant);
+		neighborhood_radius = initial_map_radius * exp(-double(epoch)/time_constant);
 
-	// Calc x_sq
-	double* x_sq = (double *)malloc(num_examples);
-	SqDists(trainData, num_examples, _dimensions, x_sq);
+		// Find BMUs for every input instance
+		// D = X_sq - 2X^TM + M_sq
+		// D (xdn * nn)
 
-	for (int i = 0; i < num_examples; i++) {
-		for (int j = 0; j < _width; j++) {
-			for (int k = 0; k < _height; k++) {
-				// Calc x^Tm
-				double xm = 0;
-				for (int d = 0; d < _dimensions; d++) {
-					xm += trainData[i *_dimensions + d] * this->_weights[(j * _height + k) * _dimensions + d];
+		// Calc m_sq
+		SqDists(this->_weights, _width * _height, _dimensions, m_sq);
+
+		// Calc x_sq
+		SqDists(trainData, num_examples, _dimensions, x_sq);
+
+		for (int i = 0; i < num_examples; i++) {
+			for (int j = 0; j < _width; j++) {
+				for (int k = 0; k < _height; k++) {
+					// Calc x^Tm
+					double xm = 0;
+					for (int d = 0; d < _dimensions; d++) {
+						xm += trainData[i *_dimensions + d] * this->_weights[(j * _height + k) * _dimensions + d];
+					}
+					// Combine all
+					D[(i * _width + j) * _height + k] = x_sq[i] - 2 * xm + m_sq[j * _height + k];
 				}
-				// Combine all
-				D[(i * _width + j) * _height + k] = x_sq[i] - 2 * xm + m_sq[j * _height + k];
+			}
+		}
+
+		// BMU index of each training instance
+		for (int j = 0; j < num_examples; j++) {
+			BMUs[j] = 0;
+			for (int i = 1; i < _width * _height; i++) {
+				if (D[j * _width * _height + i] < D[j * _width * _height + BMUs[j]]) {
+					BMUs[j] = i;
+				}
+			}
+		}
+
+		// Calc N for each node
+		/*int* N = (int *)malloc(_width * _height);
+		for (int i = 0; i < _width * _height; i++) {
+			N[i] = 0;
+		}
+		for (int j = 0; j < num_examples; j++) {
+			N[BMUs[j]]++;
+		}*/
+
+		// Calc gaussian function 
+		// (num_examples x num nodes)
+		for (int j = 0; j < num_examples; j++) {
+			for (int i = 0; i < _width * _height; i++) {
+				// TODO add changing map neighborhood
+				H[j*_width*_height + i] = h(j, i, initial_map_radius, neighborhood_radius, BMUs);
+			}
+		}
+
+		// Left multiply H by a num_examples dimensional vector of ones
+		for (int i = 0; i < _width * _height; i++) {
+			denominators[i] = 0.0;
+			for (int j = 0; j < num_examples; j++) {
+				denominators[i] += H[j*_width*_height + i];
+			}
+			//denominators[i] *= (double)N[i];
+		}
+
+		for (int i = 0; i < _width * _height; i++) {
+			for (int d = 0; d < _dimensions; d++) {
+				numerators[i * _dimensions + d] = 0.0;
+				for (int j = 0; j < num_examples; j++) {
+					numerators[i*_dimensions + d] += H[j*_width*_height + i] * trainData[j*_dimensions + d];
+				}
+			}
+			//numerators[i] *= (double)N[i];
+		}
+
+		// Update codebook
+		for (int i = 0; i < _width * _height; i++) {
+			for (int d = 0; d < _dimensions; d++) {
+				this->_weights[i*_dimensions + d] = numerators[i*_dimensions + d]/denominators[i];
 			}
 		}
 	}
+
+	free(D);
 	free (m_sq);
 	free (x_sq);
-
-	// BMU index of each training instance
-	int* BMUs = (int *)malloc(num_examples);
-	for (int j = 0; j < num_examples; j++) {
-		BMUs[j] = 0;
-		for (int i = 1; i < _width * _height; i++) {
-			if (D[j * _width * _height + i] < D[j * _width * _height + BMUs[j]]) {
-				BMUs[j] = i;
-			}
-		}
-	}
-
-	// Calc N for each node
-	int* N = (int *)malloc(_width * _height);
-	for (int i = 0; i < _width * _height; i++) {
-		N[i] = 0;
-	}
-	for (int j = 0; j < num_examples; j++) {
-		N[BMUs[j]]++;
-	}
-
-	// Calc gaussian function 
-	// (num_examples x num nodes)
-	double* H = (double *)malloc(num_examples * _width * _height);
-	for (int j = 0; j < num_examples; j++) {
-		for (int i = 0; i < _width * _height; i++) {
-			H[j*_width*_height + i] = h(j, i, initial_map_radius, initial_map_radius, BMUs);
-		}
-	}
-
-	// Update codebook
-	for (int i = 0; i < _width * _height; i++) {
-		// (H^T(num nodes x num_examples) * X(num_examples x _dimensions)) * n_j (scalar) = numerators (num nodes x _dimensions) ?
-		// For denominators, H is left-multiplied by an num_examples dimensional vector of ones
-	}
-
 	free(H);
-	free(N);
-	free(D);
 	free(BMUs);
+	free(numerators);
+	free(denominators);
+	//free(N);
 }
 
 /*
