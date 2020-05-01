@@ -67,7 +67,18 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	free (m_sq);
 	free (x_sq);
 
+	int* BMUs = (int *)malloc(num_examples);
+	for (int j = 0; j < num_examples; j++) {
+		BMUs[j] = 0;
+		for (int i = 1; i < _width * _height; i++) {
+			if (D[j * _width * _height + i] < D[j * _width * _height + BMUs[j]]) {
+				BMUs[j] = i;
+			}
+		}
+	}
+
 	// Calc gaussian function 
+	// (num_examples x num nodes)
 	double* H = (double *)malloc(num_examples * _width * _height);
 	for (int j = 0; j < num_examples; j++) {
 		for (int i = 0; i < _width * _height; i++) {
@@ -76,10 +87,9 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	}
 
 	// Update codebook
-	for (int i = 0; i < _width; i++) {
-		for (int j = 0; j < _height; j++) {
-			
-		}
+	for (int i = 0; i < _width * _height; i++) {
+		// (H^T(num nodes x num_examples) * X(num_examples x _dimensions)) * n_j (scalar) = numerators (num nodes x _dimensions) ?
+		// For denominators, H is left-multiplied by an num_examples dimensional vector of ones
 	}
 
 	free(H);
