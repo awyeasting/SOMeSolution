@@ -70,9 +70,8 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	// Calc gaussian function 
 	double* H = (double *)malloc(num_examples * _width * _height);
 	for (int j = 0; j < num_examples; j++) {
-		for (int i = 0; i < _width * _height; j++) {
-			// TODO
-			H[i*_width*_height + j] = h(j, i, initial_map_radius, 0.0, D);
+		for (int i = 0; i < _width * _height; i++) {
+			H[j*_width*_height + i] = h(j, i, initial_map_radius, initial_map_radius, D);
 		}
 	}
 
@@ -82,6 +81,8 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 			
 		}
 	}
+
+	free(H);
 }
 
 /*
