@@ -35,8 +35,46 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		}
 	}
 
-	// Find BMUs for every input instance
+	// Calc initial map radius
+	double initial_map_radius = _width < _height ? ((double)_width) / 2.0 : ((double)_height) / 2.0;
 
+	// Find BMUs for every input instance
+	// D = X_sq - 2X^TM + M_sq
+	// D (xdn * nn)
+	double* D = (double *)malloc(num_examples * _width * _height);
+
+	// Calc m_sq
+	double* m_sq = (double *)malloc(_width * _height);
+	SqDists(this->_weights, _width * _height, _dimensions, m_sq);
+
+	// Calc x_sq
+	double* x_sq = (double *)malloc(num_examples);
+	SqDists(trainData, num_examples, _dimensions, x_sq);
+
+	for (int i = 0; i < num_examples; i++) {
+		for (int j = 0; j < _width; j++) {
+			for (int k = 0; k < _height; k++) {
+				// Calc x^Tm
+				double xm = 0;
+				for (int d = 0; d < _dimensions; d++) {
+					xm += trainData[i *_dimensions + d] * this->_weights[(j * _height + k) * _dimensions + d];
+				}
+				// Combine all
+				D[(i * _width + j) * _height + k] = x_sq[i] - 2 * xm + m_sq[j * _height + k];
+			}
+		}
+	}
+	free (m_sq);
+	free (x_sq);
+
+	// Calc gaussian function 
+	double* H = (double *)malloc(num_examples * _width * _height);
+	for (int i = 0; i < num_examples; i++) {
+		for (int j = 0; j < _width * _height; j++) {
+			// TODO
+			H[i*_width*_height + j] = h(i, j, initial_map_radius, 0.0);
+		}
+	}
 
 	// Update codebook
 	for (int i = 0; i < _width; i++) {
@@ -163,4 +201,24 @@ double SOM::EucDist(double* v1, double* v2) {
 		total += (v1[i] - v2[i])*(v1[i] - v2[i]);
 	}
 	return sqrt(total);
+}
+
+void SOM::SqDists(double* m, int loop, int dim, double* output) {
+	for (int i = 0; i < loop; i++) {
+		output[i] = 0;
+		for (int d = 0; d < dim; d++) {
+			output[i] += m[i * d + d] * m[i * d + d]; 
+		}
+	}
+}
+
+double SOM::h(int i, int j, double initial_radius, double radius) {
+	int i_y = i % _height;
+	int i_x = (i - i_y) / _height;
+
+	// TODO
+	int j_x = 0;
+	int j_y = 0;
+
+	return initial_radius * exp(-(double)((j_x - i_x) * (j_x - i_x) + (j_y - i_y) * (j_y - i_y))/(radius * radius));
 }
