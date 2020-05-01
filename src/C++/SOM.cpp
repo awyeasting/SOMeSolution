@@ -69,10 +69,10 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 
 	// Calc gaussian function 
 	double* H = (double *)malloc(num_examples * _width * _height);
-	for (int i = 0; i < num_examples; i++) {
-		for (int j = 0; j < _width * _height; j++) {
+	for (int j = 0; j < num_examples; j++) {
+		for (int i = 0; i < _width * _height; j++) {
 			// TODO
-			H[i*_width*_height + j] = h(i, j, initial_map_radius, 0.0);
+			H[i*_width*_height + j] = h(j, i, initial_map_radius, 0.0, D);
 		}
 	}
 
@@ -212,13 +212,20 @@ void SOM::SqDists(double* m, int loop, int dim, double* output) {
 	}
 }
 
-double SOM::h(int i, int j, double initial_radius, double radius) {
+double SOM::h(int j, int i, double initial_radius, double radius, double* D) {
 	int i_y = i % _height;
 	int i_x = (i - i_y) / _height;
 
-	// TODO
-	int j_x = 0;
-	int j_y = 0;
+	// Get BMU coord
+	int bmu = 0;
+	int j_off = j * _width * _height;
+	for (int k = 1; k < _width * _height; k++) {
+		if (D[j_off + k] < D[j_off + bmu]) {
+			bmu = k;
+		}
+	}
+	int j_y = bmu % _height;
+	int j_x = (bmu - j_y) / _height;
 
 	return initial_radius * exp(-(double)((j_x - i_x) * (j_x - i_x) + (j_y - i_y) * (j_y - i_y))/(radius * radius));
 }
