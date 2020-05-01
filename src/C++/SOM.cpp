@@ -67,6 +67,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	free (m_sq);
 	free (x_sq);
 
+	// BMU index of each training instance
 	int* BMUs = (int *)malloc(num_examples);
 	for (int j = 0; j < num_examples; j++) {
 		BMUs[j] = 0;
@@ -77,12 +78,21 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		}
 	}
 
+	// Calc N for each node
+	int* N = (int *)malloc(_width * _height);
+	for (int i = 0; i < _width * _height; i++) {
+		N[i] = 0;
+	}
+	for (int j = 0; j < num_examples; j++) {
+		N[BMUs[j]]++;
+	}
+
 	// Calc gaussian function 
 	// (num_examples x num nodes)
 	double* H = (double *)malloc(num_examples * _width * _height);
 	for (int j = 0; j < num_examples; j++) {
 		for (int i = 0; i < _width * _height; i++) {
-			H[j*_width*_height + i] = h(j, i, initial_map_radius, initial_map_radius, D);
+			H[j*_width*_height + i] = h(j, i, initial_map_radius, initial_map_radius, BMUs);
 		}
 	}
 
@@ -93,6 +103,9 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	}
 
 	free(H);
+	free(N);
+	free(D);
+	free(BMUs);
 }
 
 /*
@@ -223,20 +236,13 @@ void SOM::SqDists(double* m, int loop, int dim, double* output) {
 	}
 }
 
-double SOM::h(int j, int i, double initial_radius, double radius, double* D) {
+double SOM::h(int j, int i, double initial_radius, double radius, int* BMUs) {
 	int i_y = i % _height;
 	int i_x = (i - i_y) / _height;
 
 	// Get BMU coord
-	int bmu = 0;
-	int j_off = j * _width * _height;
-	for (int k = 1; k < _width * _height; k++) {
-		if (D[j_off + k] < D[j_off + bmu]) {
-			bmu = k;
-		}
-	}
-	int j_y = bmu % _height;
-	int j_x = (bmu - j_y) / _height;
+	int j_y = BMUs[j] % _height;
+	int j_x = (BMUs[j] - j_y) / _height;
 
 	return initial_radius * exp(-(double)((j_x - i_x) * (j_x - i_x) + (j_y - i_y) * (j_y - i_y))/(radius * radius));
 }

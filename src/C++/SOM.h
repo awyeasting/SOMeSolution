@@ -35,7 +35,7 @@ private:
 	int calcIndex(int x, int y, int d);
 	double EucDist(double* v1, double* v2);
 	static void SqDists(double* m, int loop, int dim, double* output);
-	double h(int i, int j, double initial_radius, double radius, double* D);
+	double h(int i, int j, double initial_radius, double radius, int* D);
 };
 
 #endif
