@@ -62,17 +62,15 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		// Calc x_sq
 		SqDists(trainData, num_examples, _dimensions, x_sq);
 
-		for (int i = 0; i < num_examples; i++) {
-			for (int j = 0; j < _width; j++) {
-				for (int k = 0; k < _height; k++) {
-					// Calc x^Tm
-					double xm = 0;
-					for (int d = 0; d < _dimensions; d++) {
-						xm += trainData[i *_dimensions + d] * this->_weights[(j * _height + k) * _dimensions + d];
-					}
-					// Combine all
-					D[(i * _width + j) * _height + k] = x_sq[i] - 2 * xm + m_sq[j * _height + k];
+		for (int j = 0; j < num_examples; j++) {
+			for (int i = 0; i < _width * _height; i++) {
+				// Calc x^Tm
+				double xm = 0;
+				for (int d = 0; d < _dimensions; d++) {
+					xm += trainData[j * _dimensions + d] * this->_weights[i * _dimensions + d];
 				}
+				// Combine all
+				D[j * _width * _height + i] = x_sq[j] - 2 * xm + m_sq[i];
 			}
 		}
 
@@ -264,7 +262,7 @@ void SOM::SqDists(double* m, int loop, int dim, double* output) {
 	for (int i = 0; i < loop; i++) {
 		output[i] = 0;
 		for (int d = 0; d < dim; d++) {
-			output[i] += m[i * d + d] * m[i * d + d]; 
+			output[i] += m[i * dim + d] * m[i * dim + d]; 
 		}
 	}
 }
