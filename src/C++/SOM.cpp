@@ -62,7 +62,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		// Calc x_sq
 		SqDists(trainData, num_examples, _dimensions, x_sq);
 
-		for (int j = 0; j < num_examples; j++) {
+		for (int j = 0; j < num_examgitples; j++) {
 			for (int i = 0; i < _width * _height; i++) {
 				// Calc x^Tm
 				double xm = 0;
@@ -84,20 +84,10 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 			}
 		}
 
-		// Calc N for each node
-		/*int* N = (int *)malloc(_width * _height);
-		for (int i = 0; i < _width * _height; i++) {
-			N[i] = 0;
-		}
-		for (int j = 0; j < num_examples; j++) {
-			N[BMUs[j]]++;
-		}*/
-
 		// Calc gaussian function 
 		// (num_examples x num nodes)
 		for (int j = 0; j < num_examples; j++) {
 			for (int i = 0; i < _width * _height; i++) {
-				// TODO add changing map neighborhood
 				H[j*_width*_height + i] = h(j, i, initial_map_radius, neighborhood_radius, BMUs);
 			}
 		}
@@ -108,7 +98,6 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 			for (int j = 0; j < num_examples; j++) {
 				denominators[i] += H[j*_width*_height + i];
 			}
-			//denominators[i] *= (double)N[i];
 		}
 
 		for (int i = 0; i < _width * _height; i++) {
@@ -118,7 +107,6 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 					numerators[i*_dimensions + d] += H[j*_width*_height + i] * trainData[j*_dimensions + d];
 				}
 			}
-			//numerators[i] *= (double)N[i];
 		}
 
 		// Update codebook
