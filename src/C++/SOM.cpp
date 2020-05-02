@@ -55,14 +55,16 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		// Find BMUs for every input instance
 		// D = X_sq - 2X^TM + M_sq
 		// D (xdn * nn)
-
+		
 		// Calc m_sq
 		SqDists(this->_weights, _width * _height, _dimensions, m_sq);
 
 		// Calc x_sq
+		#pragma omp parallel
 		SqDists(trainData, num_examples, _dimensions, x_sq);
 
-		for (int j = 0; j < num_examgitples; j++) {
+		#pragma omp parallel for
+		for (int j = 0; j < num_examples; j++) {
 			for (int i = 0; i < _width * _height; i++) {
 				// Calc x^Tm
 				double xm = 0;
@@ -86,6 +88,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 
 		// Calc gaussian function 
 		// (num_examples x num nodes)
+		#pragma omp parallel for
 		for (int j = 0; j < num_examples; j++) {
 			for (int i = 0; i < _width * _height; i++) {
 				H[j*_width*_height + i] = h(j, i, initial_map_radius, neighborhood_radius, BMUs);
@@ -100,6 +103,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 			}
 		}
 
+		#pragma omp parallel for
 		for (int i = 0; i < _width * _height; i++) {
 			for (int d = 0; d < _dimensions; d++) {
 				numerators[i * _dimensions + d] = 0.0;
@@ -110,6 +114,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		}
 
 		// Update codebook
+		#pragma omp parallel for
 		for (int i = 0; i < _width * _height; i++) {
 			for (int d = 0; d < _dimensions; d++) {
 				this->_weights[i*_dimensions + d] = numerators[i*_dimensions + d]/denominators[i];
@@ -124,7 +129,6 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	free(BMUs);
 	free(numerators);
 	free(denominators);
-	//free(N);
 }
 
 /*
@@ -247,6 +251,7 @@ double SOM::EucDist(double* v1, double* v2) {
 }
 
 void SOM::SqDists(double* m, int loop, int dim, double* output) {
+	#pragma omp for
 	for (int i = 0; i < loop; i++) {
 		output[i] = 0;
 		for (int d = 0; d < dim; d++) {
