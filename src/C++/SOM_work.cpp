@@ -4,8 +4,26 @@
 #include <vector>
 #include <string>
 #include <cstring>
-
 #include "SOM.h"
+
+/*
+	Generates a random set of training data if there is no input file given
+*/
+
+double *generateRandomTrainingInputs(unsigned int &examples, unsigned int &dimensions)
+{
+	double *returnData = new double [examples * dimensions];
+	for (int i = 0; i < examples; i++)
+	{
+		int rowMod = (examples - i - 1)*dimensions;
+		for (int j = 0; j < dimensions; j++)
+		{
+			double weight = SOM::randWeight();
+			returnData[rowMod+j] = weight;
+		}
+	}
+	return returnData;
+}
 
 /*
 	Load a set of training data from a given filename
@@ -77,9 +95,8 @@ int main(int argc, char *argv[])
 	int epochs = 1000;
 	unsigned int width = 8, height = 8;
 	double learningRate = 0.1;
-
+	unsigned int n, d;
 	int posArgPos = 0;
-	std::cout << "Reading program arguments...\n" << std::flush;
 	for(int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
 			std::cout << "Positional Arguments:" << std::endl
@@ -87,6 +104,7 @@ int main(int argc, char *argv[])
 			<< "\t(int)    SOM height" << std::endl
 			<< "\t(string) Training data" << std::endl;
 			std::cout << "Options:" << std::endl
+			<< "\t(int int)-g --g      num features, num_dimensions for generating random data" << std::endl
 			<< "\t(string) -o --out    Path of the output file of node weights" << std::endl
 			<< "\t(int)    -e --epochs Number of epochs used in training" << std::endl;
 			return 0;
@@ -108,7 +126,17 @@ int main(int argc, char *argv[])
 			} else {
 				std::cout << "If the --epochs option is used a valid number of epochs should be specified." << std::endl;
 			}
-		}else {
+		}
+		else if (strcmp(argv[i], "--g") == 0) {
+			if (i + 2 < argc)
+			{
+					n = std::stoi(argv[i + 1]);
+					d = std::stoi(argv[i + 2]);
+				i = i+ 2;
+			}
+		}
+			
+		else {
 			// Positional arguments
 			// width height trainingdatafile.txt
 			switch(posArgPos) {
@@ -135,31 +163,31 @@ int main(int argc, char *argv[])
 			posArgPos++;
 		}
 	}
-
 	// Load training data
-	std::cout << "Loading train data...\n"<< std::flush;
-	unsigned int n, d;
-	double *trainData = loadTrainingData(trainingFileName, n, d);
+	double *trainData;
+	if (trainingFileName == "")
+	{
+		trainData = generateRandomTrainingInputs(n,d);
+	}
+	else
+	{
+		trainData = loadTrainingData(trainingFileName, n, d);
+	}
 	if (trainData == NULL) {
 		return 0;
 	}
-
 	// Create untrained SOM
 	SOM newSom = SOM(width, height);
-
 	// Train SOM and time training
-	std::cout << "Training SOM...\n"<< std::flush;
 	auto start = std::chrono::high_resolution_clock::now();
 	newSom.train_data(trainData, n, d, epochs, learningRate);
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(stop - start);
-	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl << std::flush;
+	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
 
 	// Save the SOM's weights
-	std::cout << "Getting outfile handle...\n"<< std::flush;
 	std::ofstream outFile(outFileName, std::ofstream::out);
 	if (outFile.is_open()) {
-		std::cout << "Saving SOM...\n";
 		newSom.save_weights(outFile);
 		outFile.close();
 		std::cout << "SOM saved to " << outFileName << std::endl;

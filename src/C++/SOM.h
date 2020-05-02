@@ -15,7 +15,7 @@ public:
 	SOM(std::istream &in);
 
 	void train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate);
-	
+	static double randWeight();
 	void save_weights(std::ostream &out);
 
 private:
@@ -31,7 +31,6 @@ private:
 
 	void normalizeData(double *trainData, int num_exampless);
 	void updateNodeWeights(int x, int y, double* example, double learning_rate, double influence);
-	static double randWeight();
 	int calcIndex(int x, int y, int d);
 	double EucDist(double* v1, double* v2);
 	static void SqDists(double* m, int loop, int dim, double* output);
