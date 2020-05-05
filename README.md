@@ -37,7 +37,7 @@ Example:
 ```bash
 main 10 10 -g 100 100 -o trained_data.txt
 ```
-The following will make a 10 x 10 SOM map, generate it's own training data, have 100 features and 100 dimensions
+The following will make a 10 x 10 SOM, generate it's own training data, have 100 features and 100 dimensions
 
 ## License 
 [GPLv3](https://choosealicense.com/licenses/lgpl-3.0/)
