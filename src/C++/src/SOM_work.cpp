@@ -92,6 +92,7 @@ int main(int argc, char *argv[])
 {
 	std::string trainingFileName = "";
 	std::string outFileName = "weights.txt";
+	std::string versionNumber = "0.1.0";
 	int epochs = 10;
 	unsigned int width = 8, height = 8;
 	double learningRate = 0.1;
@@ -107,6 +108,9 @@ int main(int argc, char *argv[])
 			<< "\t(int int)-g --generate  num features, num_dimensions for generating random data" << std::endl
 			<< "\t(string) -o --out       Path of the output file of node weights" << std::endl
 			<< "\t(int)    -e --epochs    Number of epochs used in training" << std::endl;
+			return 0;
+		} else if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
+			std::cout << "somesolution v" << versionNumber << std::endl;
 			return 0;
 		} else if (strcmp(argv[i], "--out") == 0 || strcmp(argv[i], "-o") == 0) {
 			if (i + 1 < argc) {
