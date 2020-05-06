@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
 {
 	std::string trainingFileName = "";
 	std::string outFileName = "weights.txt";
-	int epochs = 1000;
+	int epochs = 10;
 	unsigned int width = 8, height = 8;
 	double learningRate = 0.1;
 	unsigned int n, d;
@@ -104,9 +104,9 @@ int main(int argc, char *argv[])
 			<< "\t(int)    SOM height" << std::endl
 			<< "\t(string) Training data" << std::endl;
 			std::cout << "Options:" << std::endl
-			<< "\t(int int)-g --g      num features, num_dimensions for generating random data" << std::endl
-			<< "\t(string) -o --out    Path of the output file of node weights" << std::endl
-			<< "\t(int)    -e --epochs Number of epochs used in training" << std::endl;
+			<< "\t(int int)-g --generate  num features, num_dimensions for generating random data" << std::endl
+			<< "\t(string) -o --out       Path of the output file of node weights" << std::endl
+			<< "\t(int)    -e --epochs    Number of epochs used in training" << std::endl;
 			return 0;
 		} else if (strcmp(argv[i], "--out") == 0 || strcmp(argv[i], "-o") == 0) {
 			if (i + 1 < argc) {
@@ -127,12 +127,14 @@ int main(int argc, char *argv[])
 				std::cout << "If the --epochs option is used a valid number of epochs should be specified." << std::endl;
 			}
 		}
-		else if (strcmp(argv[i], "--g") == 0) {
+		else if (strcmp(argv[i], "--generate") == 0 || strcmp(argv[i], "-g") == 0) {
 			if (i + 2 < argc)
 			{
 					n = std::stoi(argv[i + 1]);
 					d = std::stoi(argv[i + 2]);
 				i = i+ 2;
+			} else {
+				std::cout << "If the --generate option is used, n examples and d dimensions should be specified." << std::endl;
 			}
 		}
 			
