@@ -1,7 +1,8 @@
 language: cpp
-compilier: gcc
+compiler: gcc
 
 script:
 - cd src/C++
 - make build
-- /bin/somwork.exe 10 10 -g 100 10 -o train.txt
+- cd bin
+- ./somwork 10 10 -g 100 10 -o train.txt
