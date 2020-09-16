@@ -10,8 +10,9 @@
 	Generates a random set of training data if there is no input file given
 */
 
-double *generateRandomTrainingInputs(unsigned int &examples, unsigned int &dimensions)
+double *generateRandomTrainingInputs(unsigned int &examples, unsigned int &dimensions, int seedValue)
 {
+	srand(seedValue);
 	double *returnData = new double [examples * dimensions];
 	for (int i = 0; i < examples; i++)
 	{
@@ -98,6 +99,8 @@ int main(int argc, char *argv[])
 	double learningRate = 0.1;
 	unsigned int n, d;
 	int posArgPos = 0;
+	srand(time(NULL));
+	int seedValue = rand();
 	for(int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
 			std::cout << "Positional Arguments:" << std::endl
@@ -107,7 +110,8 @@ int main(int argc, char *argv[])
 			std::cout << "Options:" << std::endl
 			<< "\t(int int)-g --generate  num features, num_dimensions for generating random data" << std::endl
 			<< "\t(string) -o --out       Path of the output file of node weights" << std::endl
-			<< "\t(int)    -e --epochs    Number of epochs used in training" << std::endl;
+			<< "\t(int)    -e --epochs    Number of epochs used in training" << std::endl
+			<< "\t(int)    -s --seed      Integer value to intialize seed for generating" << std::endl;
 			return 0;
 		} else if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
 			std::cout << "somesolution v" << versionNumber << std::endl;
@@ -141,6 +145,17 @@ int main(int argc, char *argv[])
 				std::cout << "If the --generate option is used, n examples and d dimensions should be specified." << std::endl;
 			}
 		}
+
+		else if (strcmp(argv[i], "--seed") == 0 || strcmp(argv[i], "-s") == 0){
+			if (i + 1 < argc) {
+				seedValue = std::stoi(argv[i+1]);
+				i++;
+			}
+			else {
+				std::cout << "If the --seed option is used, the following argument should be an integer argument" << std::endl;
+			}
+		}
+
 			
 		else {
 			// Positional arguments
@@ -173,7 +188,7 @@ int main(int argc, char *argv[])
 	double *trainData;
 	if (trainingFileName == "")
 	{
-		trainData = generateRandomTrainingInputs(n,d);
+		trainData = generateRandomTrainingInputs(n,d, seedValue);
 	}
 	else
 	{
