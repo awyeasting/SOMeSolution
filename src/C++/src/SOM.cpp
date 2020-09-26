@@ -193,7 +193,7 @@ void SOM::load_weights(std::istream &in)
 /*
 	Normalizes given data to be between 0 and 1 for each feature
 */
-void SOM::normalizeData(double *trainData, int num_examples)
+void SOM::normalizeData(double *trainData, int num_examples)	//Can max or min search be expedited by initially knowing greatest abs value?
 {
 	// Find the max and min value for each feature then use it to normalize the feature
 	this->_featureMaxes = new double[this->_dimensions];
@@ -214,6 +214,8 @@ void SOM::normalizeData(double *trainData, int num_examples)
 		for (int i = 0; i < num_examples; i++) {
 			trainData[i*_dimensions + d] = (trainData[i*_dimensions + d] - this->_featureMins[d])/(this->_featureMaxes[d]-this->_featureMins[d]);
 		}
+		//The above can be replaced by a series of daxpy (N, DA, DX, INCX, DY, INCY) which does y = a*x + y
+
 	}
 }
 
