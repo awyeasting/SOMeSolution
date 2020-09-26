@@ -77,11 +77,11 @@ double* loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsi
 	// Convert vector of arrays into 1d array of examples
 	rows = lines.size();
 	double* res = new double[rows * cols];
-	for (i = 0; i < rows; i++) {
-		double* temp = lines.back();
-		int rowMod = (rows-i-1)*cols;
+	for (i = 0; i < rows; i++) {		//<-Potential use of dcopy (N, DX, INCX, DY, INCY) to copy DX into DX
+		double* temp = lines.back();	//Repurposed mailman algorith. 
+		int rowMod = (rows-i-1)*cols;       
 		for (int j = 0; j < cols; j++) {
-			res[rowMod + j] = temp[j];
+			res[rowMod + j] = temp[j];   
 		}
 		lines.pop_back();
 		free(temp);
