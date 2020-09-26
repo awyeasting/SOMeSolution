@@ -27,6 +27,8 @@ private:
 	double* _weights;
 	double* _featureMaxes;
 	double* _featureMins;
+	//double* _zeroes;	//zeroes and ones will be vectors of dimensions size.
+	//double* _ones;	//They will be used for daxpy operations with uneeded vector or addition or subtraction   
 
 	void load_weights(std::istream &in);
 
