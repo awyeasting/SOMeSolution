@@ -1,5 +1,5 @@
 #include "SOM.h"
-
+//#inclunde cblas.h  <-Header for blas library and defines functions called through LAPACK interface
 /* 
 	Construct untrained SOM with given lattice width and height
 */
@@ -242,7 +242,8 @@ int SOM::calcIndex(int x, int y, int d) {
 /*
 	Calculates the euclidean distance between two vectors
 */
-double SOM::EucDist(double* v1, double* v2) {
+double SOM::EucDist(double* v1, double* v2) {   //<- Use daxpy (N, DA, DX, INCX, DY, INCY) to calc difference
+						//y = a*x + y a is the scalar alpha, x an input vector, y an input and output vector  
 	double total = 0.0;
 	for (int i = 0; i < this->_dimensions; i++) {
 		total += (v1[i] - v2[i])*(v1[i] - v2[i]);
