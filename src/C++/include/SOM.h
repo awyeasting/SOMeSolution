@@ -8,6 +8,7 @@
 #include <math.h>
 #include <omp.h>
 #include <time.h>
+#include "cblas.h"
 
 class SOM
 {
