@@ -21,7 +21,15 @@ SOM::SOM(std::istream &in) {
 */
 void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate)
 {
+	this->_spacing = 1;
 	this->_dimensions = dimensions;
+	this-> _buffer = (double*)malloc(this->_dimensions * sizeof(double));
+	this->_zeroes = (double*)malloc(this->_dimensions * sizeof(double));
+	cblas_dscal(_dimensions,0.0,_zeroes,1);
+	this->_ones = (double*)malloc(this->_dimensions * sizeof(double));
+	for(unsigned int i =0;i<_dimensions;i++)
+		_ones[i] = 1;
+
 	// Normalize data (to be within 0 to 1)
 	normalizeData(trainData, num_examples);
 
@@ -129,6 +137,8 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	free(BMUs);
 	free(numerators);
 	free(denominators);
+	free(_ones);
+	free(_zeroes);
 }
 
 /*
@@ -244,22 +254,21 @@ int SOM::calcIndex(int x, int y, int d) {
 /*
 	Calculates the euclidean distance between two vectors
 */
-double SOM::EucDist(double* v1, double* v2) {   //<- Use daxpy (N, DA, DX, INCX, DY, INCY) to calc difference
-						//y = a*x + y a is the scalar alpha, x an input vector, y an input and output vector  
-	double total = 0.0;
-	for (int i = 0; i < this->_dimensions; i++) {
-		total += (v1[i] - v2[i])*(v1[i] - v2[i]);
-	}
-	return sqrt(total);
+double SOM::EucDist(double* v1, double* v2) {   
+
+	cblas_dcopy(this->_dimensions,v2,this->_spacing,this->_buffer,this->_spacing); //Copy v2 to buffer
+	cblas_daxpy(this->_dimensions,-1.0,v1,this->_spacing,v2,this->_spacing);       //get the difference of v2 and v1 into buffer
+	return cblas_dnrm2(this->_dimensions,v2,1); //Return euclidean norm of buffer 
 }
 
-void SOM::SqDists(double* m, int loop, int dim, double* output) {
-	#pragma omp for
-	for (int i = 0; i < loop; i++) {
+void SOM::SqDists(double* m, int loop, int dim, double* output) { 
+	#pragma omp for                                               //Get dot product of a vector and itself.
+	for (int i = 0; i < loop; i++) {							  //Place the dot product into output[i]
 		output[i] = 0;
-		for (int d = 0; d < dim; d++) {
-			output[i] += m[i * dim + d] * m[i * dim + d]; 
-		}
+		//for (int d = 0; d < dim; d++) {
+		//	output[i] += m[i * dim + d] * m[i * dim + d]; //Each vector m starts at m[i*dim]
+		//}
+		output[i] = cblas_ddot(dim, m + (i * dim), 1, m + (i * dim), 1);
 	}
 }
 

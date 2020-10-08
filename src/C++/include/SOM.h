@@ -9,7 +9,7 @@
 #include <omp.h>
 #include <time.h>
 #include "cblas.h"
-
+//Include path to blas and lapack libraries
 class SOM
 {
 public:
@@ -22,15 +22,16 @@ public:
 
 private:
 
+	unsigned int _spacing;
 	unsigned int _width;
 	unsigned int _height;
 	unsigned int _dimensions;
 	double* _weights;
 	double* _featureMaxes;
 	double* _featureMins;
-	//double* _zeroes;	//zeroes and ones will be vectors of dimensions size.
-	//double* _ones;	//They will be used for daxpy operations with uneeded vector or addition or subtraction   
-
+	double* _zeroes;	//zeroes and ones will be vectors of dimensions size.
+	double* _ones;	   //These vectors will be used for daxpy operations with uneeded vector or addition or subtraction   
+	double* _buffer;  //This vector will act as a variable workspace so blas won't alter input vectors 
 	void load_weights(std::istream &in);
 
 	void normalizeData(double *trainData, int num_exampless);
