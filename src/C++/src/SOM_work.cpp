@@ -42,8 +42,9 @@ int main(int argc, char *argv[])
 	int epochs = 10;
 	unsigned int width = 8, height = 8;
 	double learningRate = 0.1;
-	unsigned int n, d;
+	unsigned int n, d, seed;
 	unsigned int rows_count;
+	unsigned int* seedArray = new int [num_procs];
 
 	if (rank == 0)
 	{
@@ -148,6 +149,10 @@ int main(int argc, char *argv[])
 		}
 		if (rows_count == NULL) {
 			return 0;
+		}
+
+		for(int i = 0; i < num_procs; i++){
+			seedArray[i] = rand() % 7919;
 		}
 	}
 
