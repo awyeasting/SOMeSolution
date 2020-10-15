@@ -161,6 +161,7 @@ int main(int argc, char *argv[])
 	MPI_Bcast(&rows_count, 1, MPI::INT, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&d, 1, MPI::INT, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&epochs, 1, MPI::INT, 0, MPI::COMM_WORLD);
+	MPI_Scatter(seedArray, 1, MPI::INT, &seed, 1, MPI::INT , 0, MPI::COMM_WORLD);
 
 	// Create untrained SOM
 	SOM newSom = SOM(width, height);

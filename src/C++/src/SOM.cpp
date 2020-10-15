@@ -39,13 +39,14 @@ double* SOM::generateRandomTrainingInputs(unsigned int examples, unsigned int di
 /*
 	Load a set of training data from a given filename
 */
-double* SOM::loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsigned int& cols) {
-	// Open file
-	std::ifstream in(trainDataFileName, std::ifstream::in);
-	if (!in.is_open()) {
-		std::cout << "Invalid training data file '" << trainDataFileName << "'" << std::endl;
-		return NULL;
-	}
+double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int& cols, int read_count, unsigned double* featureMaxes, unsigned double* featureMins) {
+	// Open file ****DO THIS BEFORE CALLING FUNCTION*****
+	
+	// std::ifstream in(trainDataFileName, std::ifstream::in);
+	// if (!in.is_open()) {
+	// 	std::cout << "Invalid training data file '" << trainDataFileName << "'" << std::endl;
+	// 	return NULL;
+	// }
 
 	// Read the first line to obtain the number of columns (dimensions) in the training data
 	std::string line;
@@ -71,7 +72,10 @@ double* SOM::loadTrainingData(std::string trainDataFileName, unsigned int& rows,
 	// Read all numbers into cols dimensional arrays added to the rows list
 	int i = 0;
 	double* unpackedLine = NULL;
-	while (in >> temp) {
+
+	for(int lines = 0; lines < read_count; lines++){
+		in >> temp;
+
 		if (!unpackedLine) {
 			unpackedLine = new double[cols];
 		}
@@ -91,6 +95,27 @@ double* SOM::loadTrainingData(std::string trainDataFileName, unsigned int& rows,
 			unpackedLine = NULL;
 		}
 	}
+
+	// while (in >> temp) {
+	// 	if (!unpackedLine) {
+	// 		unpackedLine = new double[cols];
+	// 	}
+	// 	unpackedLine[i] = temp;
+	// 	if (temp > featureMaxes[i])
+	// 	{
+	// 		featureMaxes[i] = temp;
+	// 	}
+	// 	if (temp < featureMins[i])
+	// 	{
+	// 		featureMins[i] = temp;
+	// 	}
+	// 	i++;
+	// 	if (i == cols) {
+	// 		lines.push_back(unpackedLine);
+	// 		i = 0;
+	// 		unpackedLine = NULL;
+	// 	}
+	// }
 
 	// Convert vector of arrays into 1d array of examples
 	rows = lines.size();
@@ -191,13 +216,23 @@ void SOM::train_one_epoch(double* localMap, double* train_data, double* numerato
 	free(BMUs);
 }
 
+std::fstream& SOM::GotoLine(std::fstream& file, unsigned int num){
+    file.seekg(std::ios::beg);
+    for(int i=0; i < num - 1; ++i){
+        file.ignore(std::numeric_limits<std::streamsize>::max(),'\n');
+    }
+    return file;
+}
+
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
-void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned int num_procs, unsigned in epochs, unsigned int dimensions, int epochs, unsigned int rowCount)
+void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, int epochs, unsigned int rowCount, int rank_seed)
 {
 	double * train_data;
 	int start, shift, read_count;
+	double* global_max;
+	double* global_min;
 	//Where we load in the file.
 	start = ((rowCount / num_procs) * current_rank) + 1;
 	read_count = rowCount / num_procs;
@@ -212,13 +247,31 @@ void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned in
 	{
 		int current_rank_seed;
 		//Rank 0 create seed value array. Scatter to current_rank_seed.
-		train_data = generateRandomTrainingInputs(read_count, _dimensions, current_rank_seed);
+		train_data = generateRandomTrainingInputs(read_count, dimensions, rank_seed);
 	}
 	else
 	{
-		
-		//Need to do reading with localmaxes and localMins. 
-		//RANK 0 Gather, 
+		std::fstream in(fileName, std::ios::in | std::ios::out);
+
+		if (!in.is_open()) {
+			std::cout << "Invalid training data file '" << trainDataFileName << "'" << std::endl;
+			return NULL;
+		}
+
+		unsigned double* featureMaxes = (unsigned int*)malloc(sizeof(unsigned int) * dimensions);
+		unsigned double* featureMins = (unsigned int*)malloc(sizeof(unsigned int) * dimensions);
+
+		std::fstream& file = GotoLine(in, start);
+		//Need to do reading with localmaxes and localMins.
+		train_data = loadTrainingData(in, rows, dimensions, read_count, featureMaxes, featureMins);
+
+		//RANK 0 Reduces, 
+		// Allreduce Maxes
+		MPI_Allreduce(featureMaxes, &global_max, 0, MPI::DOUBLE , MPI::MAX, MPI::COMM_WORLD);
+		// Reduce Mins
+		MPI_Allreduce(featureMins, &global_min, 0, MPI::DOUBLE , MPI::MAX, MPI::COMM_WORLD);
+
+
 	}
 
 	// Need to add a step where we are normalize the training data. Probably in the if statement.
@@ -250,7 +303,7 @@ void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned in
 	double* local_numerators = (double*)malloc(_width * _height * _dimensions * sizeof(double));
 	double* local_denominators = (double*)malloc(_width * _height * sizeof(double));
 	double* global_numerators;
-	double* global_denominators;
+	double* global_denominator
 
 	//Have rank 0 allocate the memory for global num and denom as it will be doing the updating.
 	if (current_rank == 0){
