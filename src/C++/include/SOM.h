@@ -4,10 +4,13 @@
 #include <limits>
 #include <iostream>
 #include <sstream>
+#include <string>
+#include <fstream>
 #include <vector>
 #include <math.h>
 #include <omp.h>
 #include <time.h>
+#include "mpi.h"
 
 class SOM
 {
@@ -15,9 +18,12 @@ public:
 	SOM(unsigned int width, unsigned int height);
 	SOM(std::istream &in);
 
-	void train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate);
+	void train_data(std::string fileName, unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount);
+	void train_one_epoch(double* localMap, double* train_data, double* numerators, double* denominators, int num_examples, double initial_map_radius, int epoch);
 	static double randWeight();
 	void save_weights(std::ostream &out);
+	double* generateRandomTrainingInputs(unsigned int examples, unsigned int dimensions, int seedValue);
+	double* loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsigned int& cols);
 
 private:
 

@@ -17,118 +17,292 @@ SOM::SOM(std::istream &in) {
 }
 
 /*
-	Train the SOM using a set of training data over a given number of epochs with a given learning rate
+	Generates a random set of training data if there is no input file given
 */
-void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate)
-{
-	this->_dimensions = dimensions;
-	// Normalize data (to be within 0 to 1)
-	normalizeData(trainData, num_examples);
 
-	// Randomly initialize codebook
-	this->_weights = (double *)malloc(_width * _height * _dimensions * sizeof(double));
-	for (int i = 0; i < _width; i++) {
-		for (int j = 0; j < _height; j++) {
-			for (int d = 0; d < _dimensions; d++) {
-				this->_weights[calcIndex(i,j,d)] = randWeight();
-			}
+double* SOM::generateRandomTrainingInputs(unsigned int examples, unsigned int dimensions, int seedValue)
+{
+	double *returnData = new double [examples * dimensions];
+	srand(seedValue);
+	for (int i = 0; i < examples; i++)
+	{
+		int rowMod = (examples - i - 1)*dimensions;
+		for (int j = 0; j < dimensions; j++)
+		{
+			double weight = SOM::randWeight();
+			returnData[rowMod+j] = weight;
+		}
+	}
+	return returnData;
+}
+
+/*
+	Load a set of training data from a given filename
+*/
+double* SOM::loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsigned int& cols) {
+	// Open file
+	std::ifstream in(trainDataFileName, std::ifstream::in);
+	if (!in.is_open()) {
+		std::cout << "Invalid training data file '" << trainDataFileName << "'" << std::endl;
+		return NULL;
+	}
+
+	// Read the first line to obtain the number of columns (dimensions) in the training data
+	std::string line;
+	std::getline(in, line);
+	std::stringstream ss(line);
+	std::vector<double> line1;
+	double temp;
+	cols = 0;
+	while (ss >> temp) {
+		cols++;
+		line1.push_back(temp);
+	}
+	std::vector<double*> lines;
+
+	// Store first line in dynamic array and put into the vector of rows
+	double* tempLine1 = new double[cols];
+	for (int j = 0; j < cols; j++) {
+		tempLine1[cols - j - 1] = line1.back();
+		line1.pop_back();
+	}
+	lines.push_back(tempLine1);
+
+	// Read all numbers into cols dimensional arrays added to the rows list
+	int i = 0;
+	double* unpackedLine = NULL;
+	while (in >> temp) {
+		if (!unpackedLine) {
+			unpackedLine = new double[cols];
+		}
+		unpackedLine[i] = temp;
+		if (temp > featureMaxes[i])
+		{
+			featureMaxes[i] = temp;
+		}
+		if (temp < featureMins[i])
+		{
+			featureMins[i] = temp;
+		}
+		i++;
+		if (i == cols) {
+			lines.push_back(unpackedLine);
+			i = 0;
+			unpackedLine = NULL;
 		}
 	}
 
-	// Calc initial map radius
-	double initial_map_radius = _width < _height ? ((double)_width) / 2.0 : ((double)_height) / 2.0;
-	double time_constant = double(epochs) / log(initial_map_radius);
+	// Convert vector of arrays into 1d array of examples
+	rows = lines.size();
+	double* res = new double[rows * cols];
+	for (i = 0; i < rows; i++) {
+		double* temp = lines.back();
+		int rowMod = (rows-i-1)*cols;
+		for (int j = 0; j < cols; j++) {
+			res[rowMod + j] = temp[j];
+		}
+		lines.pop_back();
+		free(temp);
+	}
+	return res;
+}
 
+/*
+	Every process would run this
+*/
+void SOM::train_one_epoch(double* localMap, double* train_data, double* numerators, double* denominators, int num_examples, double initial_map_radius, int epoch)
+{
 	double* D = (double *)malloc(num_examples * _width * _height * sizeof(double));
 	double* m_sq = (double *)malloc(_width * _height * sizeof(double));
 	double* x_sq = (double *)malloc(num_examples * sizeof(double));
 	int* BMUs = (int *)malloc(num_examples * sizeof(int));
 	double* H = (double *)malloc(num_examples * _width * _height * sizeof(double));
-	double* numerators = (double *)malloc(_width * _height * _dimensions * sizeof(double));
-	double* denominators = (double *)malloc(_width * _height * sizeof(double));
 
 	double neighborhood_radius;
-	for(int epoch = 0; epoch < epochs; epoch++) {
-		//learning_rate = initial_learning_rate * exp(-double(epoch)/time_constant);
-		neighborhood_radius = initial_map_radius * exp(-double(epoch)/time_constant);
+	neighborhood_radius = initial_map_radius * exp(-double(epoch)/time_constant);
 
-		// Find BMUs for every input instance
-		// D = X_sq - 2X^TM + M_sq
-		// D (xdn * nn)
-		
-		// Calc m_sq
-		SqDists(this->_weights, _width * _height, _dimensions, m_sq);
+	//learning_rate = initial_learning_rate * exp(-double(epoch)/time_constant);
 
-		// Calc x_sq
-		#pragma omp parallel
-		SqDists(trainData, num_examples, _dimensions, x_sq);
+	// Find BMUs for every input instance
+	// D = X_sq - 2X^TM + M_sq
+	// D (xdn * nn)
+	// Calc m_sq
+	SqDists(localMap, _width * _height, _dimensions, m_sq);
 
-		#pragma omp parallel for
-		for (int j = 0; j < num_examples; j++) {
-			for (int i = 0; i < _width * _height; i++) {
-				// Calc x^Tm
-				double xm = 0;
-				for (int d = 0; d < _dimensions; d++) {
-					xm += trainData[j * _dimensions + d] * this->_weights[i * _dimensions + d];
-				}
-				// Combine all
-				D[j * _width * _height + i] = x_sq[j] - 2 * xm + m_sq[i];
-			}
-		}
+	// Calc x_sq
+	#pragma omp parallel
+	SqDists(train_data, num_examples, _dimensions, x_sq);
 
-		// BMU index of each training instance
-		for (int j = 0; j < num_examples; j++) {
-			BMUs[j] = 0;
-			for (int i = 1; i < _width * _height; i++) {
-				if (D[j * _width * _height + i] < D[j * _width * _height + BMUs[j]]) {
-					BMUs[j] = i;
-				}
-			}
-		}
-
-		// Calc gaussian function 
-		// (num_examples x num nodes)
-		#pragma omp parallel for
-		for (int j = 0; j < num_examples; j++) {
-			for (int i = 0; i < _width * _height; i++) {
-				H[j*_width*_height + i] = h(j, i, initial_map_radius, neighborhood_radius, BMUs);
-			}
-		}
-
-		// Left multiply H by a num_examples dimensional vector of ones
+	//Calculate D matrix
+	#pragma omp parallel for
+	for (int j = 0; j < num_examples; j++) {
 		for (int i = 0; i < _width * _height; i++) {
-			denominators[i] = 0.0;
-			for (int j = 0; j < num_examples; j++) {
-				denominators[i] += H[j*_width*_height + i];
-			}
-		}
-
-		#pragma omp parallel for
-		for (int i = 0; i < _width * _height; i++) {
+			// Calc x^Tm
+			double xm = 0;
 			for (int d = 0; d < _dimensions; d++) {
-				numerators[i * _dimensions + d] = 0.0;
-				for (int j = 0; j < num_examples; j++) {
-					numerators[i*_dimensions + d] += H[j*_width*_height + i] * trainData[j*_dimensions + d];
-				}
+				xm += train_data[j * _dimensions + d] * localMap[i * _dimensions + d];
 			}
+			// Combine all
+			D[j * _width * _height + i] = x_sq[j] - 2 * xm + m_sq[i];
 		}
+	}
 
-		// Update codebook
-		#pragma omp parallel for
-		for (int i = 0; i < _width * _height; i++) {
-			for (int d = 0; d < _dimensions; d++) {
-				this->_weights[i*_dimensions + d] = numerators[i*_dimensions + d]/denominators[i];
+	// BMU index of each training instance
+	for (int j = 0; j < num_examples; j++) {
+		BMUs[j] = 0;
+		for (int i = 1; i < _width * _height; i++) {
+			if (D[j * _width * _height + i] < D[j * _width * _height + BMUs[j]]) {
+				BMUs[j] = i;
 			}
 		}
 	}
 
+	// Calc gaussian function 
+	// (num_examples x num nodes)
+	#pragma omp parallel for
+	for (int j = 0; j < num_examples; j++) {
+		for (int i = 0; i < _width * _height; i++) {
+			H[j*_width*_height + i] = h(j, i, initial_map_radius, neighborhood_radius, BMUs);
+		}
+	}
+
+	// Left multiply H by a num_examples dimensional vector of ones
+	for (int i = 0; i < _width * _height; i++) {
+		denominators[i] = 0.0;
+		for (int j = 0; j < num_examples; j++) {
+			denominators[i] += H[j*_width*_height + i];
+		}
+	}
+	
+	//Calculate numerators
+	#pragma omp parallel for
+	for (int i = 0; i < _width * _height; i++) {
+		for (int d = 0; d < _dimensions; d++) {
+			numerators[i * _dimensions + d] = 0.0;
+			for (int j = 0; j < num_examples; j++) {
+				numerators[i*_dimensions + d] += H[j*_width*_height + i] * train_data[j*_dimensions + d];
+			}
+		}
+	}
 	free(D);
 	free (m_sq);
 	free (x_sq);
 	free(H);
 	free(BMUs);
-	free(numerators);
-	free(denominators);
+}
+
+/*
+	Train the SOM using a set of training data over a given number of epochs with a given learning rate
+*/
+void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned int num_procs, unsigned in epochs, unsigned int dimensions, int epochs, unsigned int rowCount)
+{
+	double * train_data;
+	int start, shift, read_count;
+	//Where we load in the file.
+	start = ((rowCount / num_procs) * current_rank) + 1;
+	read_count = rowCount / num_procs;
+	if (current_rank >= (num_procs - (rowCount %num_procs)))
+	{
+		shift = current_rank - (num_procs - (rowCount % num_procs));
+		start += shift;
+		read_count += 1;
+	}
+
+	if (fileName == "")
+	{
+		int current_rank_seed;
+		//Rank 0 create seed value array. Scatter to current_rank_seed.
+		train_data = generateRandomTrainingInputs(read_count, _dimensions, current_rank_seed);
+	}
+	else
+	{
+		
+		//Need to do reading with localmaxes and localMins. 
+		//RANK 0 Gather, 
+	}
+
+	// Need to add a step where we are normalize the training data. Probably in the if statement.
+
+
+	this->_dimensions = dimensions;
+
+	//Rank 0 needs to do the initalization of the map.
+	if (current_rank == 0)
+	{
+		this->_weights = (double *)malloc(_width * _height * _dimensions * sizeof(double));
+		for (int i = 0; i < _width; i++) {
+			for (int j = 0; j < _height; j++) {
+				for (int d = 0; d < _dimensions; d++) {
+					this->_weights[calcIndex(i,j,d)] = randWeight();
+				}
+			}
+		}
+	}
+
+	// Calc initial map radius and time constant.
+	double initial_map_radius = _width < _height ? ((double)_width) / 2.0 : ((double)_height) / 2.0;
+	double time_constant = double(epochs) / log(initial_map_radius);
+
+	//local_map is the variable used to broadcast, and modify each process.
+	//local_numerators  and local_denominators are the variables used to pass to train_one_epoch and then be reduced
+	//global_numerators/denominators are the variables used by rank 0 to reduce the local, and then update the map with.
+	double* local_map = (double *)malloc(_width * _height * _dimensions * sizeof(double));
+	double* local_numerators = (double*)malloc(_width * _height * _dimensions * sizeof(double));
+	double* local_denominators = (double*)malloc(_width * _height * sizeof(double));
+	double* global_numerators;
+	double* global_denominators;
+
+	//Have rank 0 allocate the memory for global num and denom as it will be doing the updating.
+	if (current_rank == 0){
+		global_numerators = (double*)malloc(_width * _height * _dimensions*sizeof(double));
+		global_denominators = (double *)malloc(_width * _height * sizeof(double));
+	}
+
+	//Loop for argument passed number of times.
+	for(int epoch = 0; epoch < epochs; epoch++) {
+		
+		//Filling localMap in rank 0 to broadcast to all processes
+		if (current_rank == 0){
+			for (int i = 0; i <_width; i++){
+				for (int j = 0; j < _height; j++){
+					for (int d = 0; d < _dimensions; d++){
+						local_map[calcIndex(i,j,d)] = _weights[calcIndex(i,j,d)];
+					}
+				}
+			}
+		}
+
+		MPI_Barrier(MPI::COMM_WORLD);
+
+		MPI_Bcast(local_map, _width*_height*_dimensions, MPI::DOUBLE, 0, MPI::COMM_WORLD);
+
+		train_one_epoch(local_map, train_data, local_numerators, local_denominators, read_count, initial_map_radius, epoch);
+		
+		MPI_Barrier(MPI::COMM_WORLD);
+
+		MPI_Reduce(local_numerators, global_numerators, _width *_height * _dimensions, MPI::DOUBLE, MPI::SUM, 0, MPI::COMM_WORLD);
+		MPI_Reduce(local_denominators, global_denominators, _width * _height, MPI::DOUBLE, MPI::SUM, 0, MPI::COMM_WORLD);
+
+		if (current_rank == 0)
+		{
+			// Update codebook
+			#pragma omp parallel for
+			for (int i = 0; i < _width * _height; i++) {
+				for (int d = 0; d < _dimensions; d++) {
+					this->_weights[i*_dimensions + d] = global_numerators[i*_dimensions + d]/global_denominators[i];
+				}
+			}
+		}
+	}
+	
+	if(current_rank == 0)
+	{
+		free(global_denominators);
+		free(global_numerators);
+	}
+	free(local_map);
+	free(local_numerators);
+	free(local_denominators);
 }
 
 /*
