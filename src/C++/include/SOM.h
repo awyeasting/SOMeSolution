@@ -18,7 +18,7 @@ public:
 	SOM(unsigned int width, unsigned int height);
 	SOM(std::istream &in);
 
-	void train_data(std::string fileName, unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount);
+	void train_data(std::string fileName, unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed);
 	void train_one_epoch(double* localMap, double* train_data, double* numerators, double* denominators, int num_examples, double initial_map_radius, int epoch);
 	static double randWeight();
 	void save_weights(std::ostream &out);

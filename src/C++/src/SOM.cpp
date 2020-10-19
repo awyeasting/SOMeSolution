@@ -227,7 +227,7 @@ std::fstream& SOM::GotoLine(std::fstream& file, unsigned int num){
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
-void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, int epochs, unsigned int rowCount, int rank_seed)
+void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed)
 {
 	double * train_data;
 	int start, shift, read_count;
@@ -258,20 +258,22 @@ void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned in
 			return NULL;
 		}
 
-		unsigned double* featureMaxes = (unsigned int*)malloc(sizeof(unsigned int) * dimensions);
-		unsigned double* featureMins = (unsigned int*)malloc(sizeof(unsigned int) * dimensions);
+		unsigned double* _featureMaxes = (unsigned int*)malloc(sizeof(unsigned int) * dimensions);
+		unsigned double* _featureMins = (unsigned int*)malloc(sizeof(unsigned int) * dimensions);
 
 		std::fstream& file = GotoLine(in, start);
 		//Need to do reading with localmaxes and localMins.
-		train_data = loadTrainingData(in, rows, dimensions, read_count, featureMaxes, featureMins);
+		train_data = loadTrainingData(in, rows, dimensions, read_count, _featureMaxes, _featureMins);
 
 		//RANK 0 Reduces, 
 		// Allreduce Maxes
-		MPI_Allreduce(featureMaxes, &global_max, 0, MPI::DOUBLE , MPI::MAX, MPI::COMM_WORLD);
+		MPI_Allreduce(_featureMaxes, &global_max, 0, MPI::DOUBLE , MPI::MAX, MPI::COMM_WORLD);
 		// Reduce Mins
-		MPI_Allreduce(featureMins, &global_min, 0, MPI::DOUBLE , MPI::MAX, MPI::COMM_WORLD);
+		MPI_Allreduce(_featureMins, &global_min, 0, MPI::DOUBLE , MPI::MAX, MPI::COMM_WORLD);
 
-
+		//MPI BARRIER not sure if this is needed, because I think All_reduce is blocking.
+		MPI_Barrier(MPI::COMM_WORLD);
+		normalizeData(train_data, read_count);
 	}
 
 	// Need to add a step where we are normalize the training data. Probably in the if statement.
@@ -423,21 +425,8 @@ void SOM::load_weights(std::istream &in)
 void SOM::normalizeData(double *trainData, int num_examples)
 {
 	// Find the max and min value for each feature then use it to normalize the feature
-	this->_featureMaxes = new double[this->_dimensions];
-	this->_featureMins = new double[this->_dimensions];
 	for (int d = 0; d < this->_dimensions; d++)
 	{
-		this->_featureMaxes[d] = -std::numeric_limits<double>::max();
-		this->_featureMins[d] = std::numeric_limits<double>::max();
-		for (int i = 0; i < num_examples; i++)
-		{
-			if (trainData[i*_dimensions + d] > this->_featureMaxes[d]) {
-				this->_featureMaxes[d] = trainData[i*_dimensions + d];
-			}
-			if (trainData[i*_dimensions + d] < this->_featureMins[d]) {
-				this->_featureMins[d] = trainData[i*_dimensions + d];
-			}
-		}
 		for (int i = 0; i < num_examples; i++) {
 			trainData[i*_dimensions + d] = (trainData[i*_dimensions + d] - this->_featureMins[d])/(this->_featureMaxes[d]-this->_featureMins[d]);
 		}

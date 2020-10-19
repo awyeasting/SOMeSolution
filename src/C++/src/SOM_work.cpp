@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
 	SOM newSom = SOM(width, height);
 	// Train SOM and time training
 	auto start = std::chrono::high_resolution_clock::now();
-	newSom.train_data(trainingFileName, rank, num_procs, epochs, d, rows_count);
+	newSom.train_data(trainingFileName, rank, num_procs, epochs, d, rows_count, seed);
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(stop - start);
 	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
