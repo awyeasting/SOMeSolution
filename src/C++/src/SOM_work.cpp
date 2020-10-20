@@ -35,7 +35,6 @@ int main(int argc, char *argv[])
 	unsigned int num_procs = MPI::COMM_WORLD.Get_size();
 	unsigned int rank = MPI::COMM_WORLD.Get_rank();
 	
-	std::cout << rank;
 	std::string trainingFileName = "";
 	std::string outFileName = "weights.txt";
 	std::string versionNumber = "0.1.0";
@@ -44,7 +43,8 @@ int main(int argc, char *argv[])
 	double learningRate = 0.1;
 	unsigned int n, d, seed;
 	unsigned int rows_count;
-	unsigned int* seedArray = new int [num_procs];
+	unsigned int* seedArray = new unsigned int[num_procs];
+	bool use_mpi = false;
 
 	if (rank == 0)
 	{
@@ -97,7 +97,7 @@ int main(int argc, char *argv[])
 
 			else if (strcmp(argv[i], "--seed") == 0 || strcmp(argv[i], "-s") == 0){
 				if (i + 1 < argc) {
-					seedValue = std::stoi(argv[i+1]);
+					srand(std::stoi(argv[i+1]));
 					i++;
 				}
 				else {
@@ -158,11 +158,12 @@ int main(int argc, char *argv[])
 
 	//Broadcast the rows_count, dimensions, and epochs that are all handled from the command line. 
 	MPI_Barrier(MPI::COMM_WORLD);
-	MPI_Bcast(&rows_count, 1, MPI::INT, 0, MPI::COMM_WORLD);
-	MPI_Bcast(&d, 1, MPI::INT, 0, MPI::COMM_WORLD);
-	MPI_Bcast(&epochs, 1, MPI::INT, 0, MPI::COMM_WORLD);
-	MPI_Scatter(seedArray, 1, MPI::INT, &seed, 1, MPI::INT , 0, MPI::COMM_WORLD);
-
+	MPI_Bcast(&rows_count, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
+	MPI_Bcast(&d, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
+	MPI_Bcast(&epochs, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
+	MPI_Bcast(&width, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
+	MPI_Bcast(&height, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
+	MPI_Scatter(seedArray, 1, MPI::UNSIGNED, &seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	// Create untrained SOM
 	SOM newSom = SOM(width, height);
 	// Train SOM and time training

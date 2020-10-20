@@ -39,7 +39,7 @@ double* SOM::generateRandomTrainingInputs(unsigned int examples, unsigned int di
 /*
 	Load a set of training data from a given filename
 */
-double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int& cols, int read_count, unsigned double* featureMaxes, unsigned double* featureMins) {
+double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int& cols, int read_count, double* featureMaxes, double* featureMins) {
 	// Open file ****DO THIS BEFORE CALLING FUNCTION*****
 	
 	// std::ifstream in(trainDataFileName, std::ifstream::in);
@@ -73,7 +73,7 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 	int i = 0;
 	double* unpackedLine = NULL;
 
-	for(int lines = 0; lines < read_count; lines++){
+	for(int linesNum = 0; linesNum < read_count; linesNum++){
 		in >> temp;
 
 		if (!unpackedLine) {
@@ -135,7 +135,7 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 /*
 	Every process would run this
 */
-void SOM::train_one_epoch(double* localMap, double* train_data, double* numerators, double* denominators, int num_examples, double initial_map_radius, int epoch)
+void SOM::train_one_epoch(double* localMap, double* train_data, double* numerators, double* denominators, int num_examples, double initial_map_radius, int epoch, double time_constant)
 {
 	double* D = (double *)malloc(num_examples * _width * _height * sizeof(double));
 	double* m_sq = (double *)malloc(_width * _height * sizeof(double));
@@ -254,16 +254,15 @@ void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned in
 		std::fstream in(fileName, std::ios::in | std::ios::out);
 
 		if (!in.is_open()) {
-			std::cout << "Invalid training data file '" << trainDataFileName << "'" << std::endl;
-			return NULL;
+			std::cout << "Invalid training data file '" << fileName << "'" << std::endl;
 		}
 
-		unsigned double* _featureMaxes = (unsigned int*)malloc(sizeof(unsigned int) * dimensions);
-		unsigned double* _featureMins = (unsigned int*)malloc(sizeof(unsigned int) * dimensions);
+		_featureMaxes = (double *)malloc(sizeof(double) * dimensions);
+		_featureMins = (double*)malloc(sizeof(double) * dimensions);
 
 		std::fstream& file = GotoLine(in, start);
 		//Need to do reading with localmaxes and localMins.
-		train_data = loadTrainingData(in, rows, dimensions, read_count, _featureMaxes, _featureMins);
+		train_data = loadTrainingData(in, rowCount, dimensions, read_count, _featureMaxes, _featureMins);
 
 		//RANK 0 Reduces, 
 		// Allreduce Maxes
@@ -275,9 +274,6 @@ void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned in
 		MPI_Barrier(MPI::COMM_WORLD);
 		normalizeData(train_data, read_count);
 	}
-
-	// Need to add a step where we are normalize the training data. Probably in the if statement.
-
 
 	this->_dimensions = dimensions;
 
@@ -305,12 +301,12 @@ void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned in
 	double* local_numerators = (double*)malloc(_width * _height * _dimensions * sizeof(double));
 	double* local_denominators = (double*)malloc(_width * _height * sizeof(double));
 	double* global_numerators;
-	double* global_denominator
+	double* global_denominator;
 
 	//Have rank 0 allocate the memory for global num and denom as it will be doing the updating.
 	if (current_rank == 0){
 		global_numerators = (double*)malloc(_width * _height * _dimensions*sizeof(double));
-		global_denominators = (double *)malloc(_width * _height * sizeof(double));
+		global_denominator = (double *)malloc(_width * _height * sizeof(double));
 	}
 
 	//Loop for argument passed number of times.
@@ -328,15 +324,13 @@ void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned in
 		}
 
 		MPI_Barrier(MPI::COMM_WORLD);
-
 		MPI_Bcast(local_map, _width*_height*_dimensions, MPI::DOUBLE, 0, MPI::COMM_WORLD);
-
-		train_one_epoch(local_map, train_data, local_numerators, local_denominators, read_count, initial_map_radius, epoch);
+		train_one_epoch(local_map, train_data, local_numerators, local_denominators, read_count, initial_map_radius, epoch, time_constant);
 		
 		MPI_Barrier(MPI::COMM_WORLD);
 
 		MPI_Reduce(local_numerators, global_numerators, _width *_height * _dimensions, MPI::DOUBLE, MPI::SUM, 0, MPI::COMM_WORLD);
-		MPI_Reduce(local_denominators, global_denominators, _width * _height, MPI::DOUBLE, MPI::SUM, 0, MPI::COMM_WORLD);
+		MPI_Reduce(local_denominators, global_denominator, _width * _height, MPI::DOUBLE, MPI::SUM, 0, MPI::COMM_WORLD);
 
 		if (current_rank == 0)
 		{
@@ -344,7 +338,7 @@ void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned in
 			#pragma omp parallel for
 			for (int i = 0; i < _width * _height; i++) {
 				for (int d = 0; d < _dimensions; d++) {
-					this->_weights[i*_dimensions + d] = global_numerators[i*_dimensions + d]/global_denominators[i];
+					this->_weights[i*_dimensions + d] = global_numerators[i*_dimensions + d]/global_denominator[i];
 				}
 			}
 		}
@@ -352,7 +346,7 @@ void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned in
 	
 	if(current_rank == 0)
 	{
-		free(global_denominators);
+		free(global_denominator);
 		free(global_numerators);
 	}
 	free(local_map);
