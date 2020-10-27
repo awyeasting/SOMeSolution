@@ -23,7 +23,7 @@ unsigned int countRowsAndCols(std::string fileName, unsigned int&rows, unsigned 
 		cols++;
 	}
 	rows= 1;
-	while (in >> temp) {
+	while (std::getline(in, line)) {
 		rows++;
 	}
 	return rows;
@@ -107,9 +107,7 @@ int main(int argc, char *argv[])
 			else if (strcmp(argv[i], "--mpi") == 0)
 			{
 				use_mpi = true;
-			}
-
-				
+			}	
 			else {
 				// Positional arguments
 				// width height trainingdatafile.txt
@@ -137,7 +135,6 @@ int main(int argc, char *argv[])
 				posArgPos++;
 			}
 		}
-
 		// Load training data
 		if (trainingFileName == "")
 		{
@@ -155,20 +152,28 @@ int main(int argc, char *argv[])
 			seedArray[i] = rand() % 7919;
 		}
 	}
-
+	
 	//Broadcast the rows_count, dimensions, and epochs that are all handled from the command line. 
+	char *file_nameString = new char [trainingFileName.size()];
+	int fileSize = trainingFileName.size();
+
+	for(int i = 0; i < trainingFileName.size(); i++)
+		file_nameString[i]=trainingFileName[i];
+	
 	MPI_Barrier(MPI::COMM_WORLD);
 	MPI_Bcast(&rows_count, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&d, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&epochs, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&width, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&height, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
+	MPI_Bcast(&fileSize, 1, MPI::INT, 0, MPI::COMM_WORLD);
+	MPI_Bcast(file_nameString, fileSize, MPI::CHAR, 0, MPI::COMM_WORLD);
 	MPI_Scatter(seedArray, 1, MPI::UNSIGNED, &seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	// Create untrained SOM
 	SOM newSom = SOM(width, height);
 	// Train SOM and time training
 	auto start = std::chrono::high_resolution_clock::now();
-	newSom.train_data(trainingFileName, rank, num_procs, epochs, d, rows_count, seed);
+	newSom.train_data((std::string)file_nameString, rank, num_procs, epochs, d, rows_count, seed);
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(stop - start);
 	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
