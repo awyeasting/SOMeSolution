@@ -236,10 +236,23 @@ void SOM::normalizeData(double *trainData, int num_examples)	//Can max or min se
 	Update a node's weights to better match a given example
 */
 void SOM::updateNodeWeights(int x, int y, double* example, double learning_rate, double influence) {
-	for (int d = 0; d < this->_dimensions; d++)
-	{
-		this->_weights[calcIndex(x,y,d)] += influence * learning_rate * (example[d] - this->_weights[calcIndex(x,y,d)]);
-	}
+	double alpha = influence * learning_rate;
+	cblas_dcopy(this->_dimensions,example,this->_spacing,this->_buffer,this->_spacing);//Copy example into buffer. buffer2 will be used as well
+	cblas_dcopy(this->_dimensions,_weights + calcIndex(x,y),this->_spacing,this->_buffer2,this->_spacing);//buffer2 has the weights
+
+	//buffer is y, buffer 2 is x, alpha is -1
+	cblas_daxpy(this->_dimensions,-1,this->_buffer2,this->_spacing,this->_buffer,this->_spacing);
+	//buffer is then scaled with dscal 
+	cblas_dscal(this->_dimensions,alpha,this->_buffer,this->_spacing);
+
+	//Finally use daxpy to add buffer vector to weights vector
+	cblas_daxpy(this->_dimensions,1, this->_buffer,this->_spacing,this->_weights + calcIndex(x,y),this->_spacing);
+
+	/*The iteration over d below is not needed with BLAS
+	//for (int d = 0; d < this->_dimensions; d++)
+	//{
+		//this->_weights[calcIndex(x,y,d)] += alpha * (example[d] - this->_weights[calcIndex(x,y,d)]);//Note that x and y are const, d is the iterator
+	}*/
 }
 
 /*
