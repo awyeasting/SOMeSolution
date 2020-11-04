@@ -251,6 +251,10 @@ int SOM::calcIndex(int x, int y, int d) {
 	return (x*_height + y)*_dimensions + d;
 }
 
+int SOM::calcIndex(int x,int y){
+	return (x*_height + y)*_dimensions;
+}
+
 /*
 	Calculates the euclidean distance between two vectors
 */
