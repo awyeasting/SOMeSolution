@@ -32,6 +32,7 @@ private:
 	double* _zeroes;	//zeroes and ones will be vectors of dimensions size.
 	double* _ones;	   //These vectors will be used for daxpy operations with uneeded vector or addition or subtraction   
 	double* _buffer;  //This vector will act as a variable workspace so blas won't alter input vectors 
+	double* _buffer2;
 	void load_weights(std::istream &in);
 
 	void normalizeData(double *trainData, int num_exampless);
