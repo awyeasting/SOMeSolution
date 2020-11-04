@@ -24,6 +24,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	this->_spacing = 1;
 	this->_dimensions = dimensions;
 	this-> _buffer = (double*)malloc(this->_dimensions * sizeof(double));
+	this-> _buffer2 = (double*)malloc(this->_dimensions * sizeof(double));
 	this->_zeroes = (double*)malloc(this->_dimensions * sizeof(double));
 	cblas_dscal(_dimensions,0.0,_zeroes,1);
 	this->_ones = (double*)malloc(this->_dimensions * sizeof(double));
