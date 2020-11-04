@@ -37,6 +37,7 @@ private:
 	void normalizeData(double *trainData, int num_exampless);
 	void updateNodeWeights(int x, int y, double* example, double learning_rate, double influence);
 	int calcIndex(int x, int y, int d);
+	int calcIndex(int x,int y);
 	double EucDist(double* v1, double* v2);
 	static void SqDists(double* m, int loop, int dim, double* output);
 	double h(int i, int j, double initial_radius, double radius, int* D);
