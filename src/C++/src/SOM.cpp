@@ -132,8 +132,8 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	}
 
 	free(D);
-	free(buffer);
-	free(buffer2);
+	free(_buffer);
+	free(_buffer2);
 	free (m_sq);
 	free (x_sq);
 	free(H);
