@@ -36,7 +36,7 @@ private:
 
 	void load_weights(std::istream &in);
 
-	void normalizeData(double *trainData, int num_exampless);
+	void normalizeData(double *trainData, int num_exampless, double *max, double *min);
 	void updateNodeWeights(int x, int y, double* example, double learning_rate, double influence);
 	int calcIndex(int x, int y, int d);
 	double EucDist(double* v1, double* v2);
