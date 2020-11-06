@@ -225,11 +225,16 @@ void SOM::normalizeData(double *trainData, int num_examples)	//Can max or min se
 			}
 		}//When finding max and min BLAS can only get 1 of them since only a find greatest absolute value. Also buffers are |dimensions| not |examples|. Unfortunately |x|=|-x| is an issue.
 		//It is not easy to know if the -x or x will be chosen. Also be careful of stepping outside the bounds for training data When checking if a max or min index was received 
-		for (int i = 0; i < num_examples; i++) {
+		/*for (int i = 0; i < num_examples; i++) {
 			trainData[i*_dimensions + d] = (trainData[i*_dimensions + d] - this->_featureMins[d])/(this->_featureMaxes[d]-this->_featureMins[d]);
-		}
+		}*/
 		//The above can be replaced by a series of daxpy (N, DA, DX, INCX, DY, INCY) which does y = a*x + y
-
+		cblas_dcopy(this->_dimensions,this->_featureMaxes,1,this->_buffer2,1);//buffer2 has maxes
+		cblas_daxpy(this->_dimensions,-1,this->_featureMins,1,this->_buffer2,1);//Alter buffer2 to be (max - min)
+		cblas_daxpy(this->_dimensions,-1,this->_featureMins,1,trainData + d,this->_dimensions);//Alter row d of trainingData to be (row d - min)   
+			
+		for(int i = 0;i < num_examples;i++){
+			trainData[i*_dimensions + d] = trainData[i*_dimensions + d] / this->_buffer2[d];
 	}
 }
 
