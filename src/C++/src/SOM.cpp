@@ -208,24 +208,90 @@ void SOM::load_weights(std::istream &in)
 */
 void SOM::normalizeData(double *trainData, int num_examples)	//Can max or min search be expedited by initially knowing greatest abs value?
 {
+	if(num_examples < 2){
+		exit (EXIT_FAILURE);
+	}
+
+	int Max_Abs_index = -1;
 	// Find the max and min value for each feature then use it to normalize the feature
 	this->_featureMaxes = new double[this->_dimensions];
 	this->_featureMins = new double[this->_dimensions];
 	for (int d = 0; d < this->_dimensions; d++)
 	{
-		this->_featureMaxes[d] = -std::numeric_limits<double>::max();
-		this->_featureMins[d] = std::numeric_limits<double>::max();
-		for (int i = 0; i < num_examples; i++)
-		{
+		this->_featureMaxes[d] = -std::numeric_limits<double>::max();//Just sets the index as the min value of double in maxs
+		this->_featureMins[d] = std::numeric_limits<double>::max();//Just sets the index as the max value of double in mins
+		
+			
+			Max_Abs_index = cblas_idamax(num_examples,trainData + d,this->_dimensions);//Find max absolute value in a row. 
+			if(Max_Abs_index == num_examples - 1){
+				if(trainData[this->_dimensions * Max_Abs_index + d] > trainData[this->_dimensions * (Max_Abs_index - 1) + d]){
+					this->_featureMaxes[d] = trainData[this->_dimensions * Max_Abs_index + d]; 
+					for(int i=0;i < num_examples;i++){
+						if (trainData[i*_dimensions + d] > this->_featureMaxes[d]) {
+						this->_featureMins[d] = trainData[i*_dimensions + d];
+						}
+					}
+				}//Found a max
+				else if(trainData[this->_dimensions * Max_Abs_index + d] < trainData[this->_dimensions * (Max_Abs_index - 1) + d]){
+					this->_featureMins[d] = trainData[this->_dimensions * Max_Abs_index + d];
+					for(int i=0;i < num_examples;i++){
+						if (trainData[i*_dimensions + d] > this->_featureMaxes[d]) {
+						this->_featureMaxes[d] = trainData[i*_dimensions + d];
+						}
+					}
+				}//Found a min
+				else{
+					for(int i=0;i < num_examples;i++){
+						if (trainData[i*_dimensions + d] > this->_featureMaxes[d]) {
+						this->_featureMaxes[d] = trainData[i*_dimensions + d];
+						}
+						if (trainData[i*_dimensions + d] < this->_featureMins[d]) {
+						this->_featureMins[d] = trainData[i*_dimensions + d];
+						}
+					}
+				}//Equality
+			}//Look backwards 1 row
+			else{
+				if(trainData[this->_dimensions * Max_Abs_index + d] > trainData[this->_dimensions * (Max_Abs_index + 1) + d]){
+					this->_featureMaxes[d] = trainData[this->_dimensions * Max_Abs_index + d];
+					for(int i=0;i < num_examples;i++){
+						if (trainData[i*_dimensions + d] > this->_featureMaxes[d]) {
+						this->_featureMins[d] = trainData[i*_dimensions + d];
+						}
+					}
+				}//Found a max
+				else if(trainData[this->_dimensions * Max_Abs_index + d] < trainData[this->_dimensions * (Max_Abs_index + 1) + d]){
+					this->_featureMins[d] = trainData[this->_dimensions * Max_Abs_index + d];
+					for(int i=0;i < num_examples;i++){
+						if (trainData[i*_dimensions + d] > this->_featureMaxes[d]) {
+						this->_featureMaxes[d] = trainData[i*_dimensions + d];
+						}
+					}
+				}//Found a min
+				else{
+					for(int i=0;i < num_examples;i++){
+						if (trainData[i*_dimensions + d] > this->_featureMaxes[d]) {
+						this->_featureMaxes[d] = trainData[i*_dimensions + d];
+						}
+						if (trainData[i*_dimensions + d] < this->_featureMins[d]) {
+						this->_featureMins[d] = trainData[i*_dimensions + d];
+						}
+					}
+				}//Equality
+			}//Look forwards 1 row
+
+			/*
 			if (trainData[i*_dimensions + d] > this->_featureMaxes[d]) {
 				this->_featureMaxes[d] = trainData[i*_dimensions + d];
 			}
 			if (trainData[i*_dimensions + d] < this->_featureMins[d]) {
 				this->_featureMins[d] = trainData[i*_dimensions + d];
 			}
-		}//When finding max and min BLAS can only get 1 of them since only a find greatest absolute value. Also buffers are |dimensions| not |examples|. Unfortunately |x|=|-x| is an issue.
-		//It is not easy to know if the -x or x will be chosen. Also be careful of stepping outside the bounds for training data When checking if a max or min index was received 
-		/*for (int i = 0; i < num_examples; i++) {
+			*/
+		
+
+		/*
+		for (int i = 0; i < num_examples; i++) {
 			trainData[i*_dimensions + d] = (trainData[i*_dimensions + d] - this->_featureMins[d])/(this->_featureMaxes[d]-this->_featureMins[d]);
 		}*/
 		//The above can be replaced by a series of daxpy (N, DA, DX, INCX, DY, INCY) which does y = a*x + y
@@ -235,8 +301,11 @@ void SOM::normalizeData(double *trainData, int num_examples)	//Can max or min se
 			
 		for(int i = 0;i < num_examples;i++){
 			trainData[i*_dimensions + d] = trainData[i*_dimensions + d] / this->_buffer2[d];
-	}
-}
+		}	//Now just have row d = row d / buffer2
+
+	}		
+}//This is super experimental. Replacing half the c++ iteration with BLAS 99% of the time should help but I don't know if there is is a benefit. 
+//The benefit is seriously lost if rows are entirely sparse. Perhaps include a sparse mode and non-sparse mode normalizing methods?	
 
 /*
 	Update a node's weights to better match a given example
