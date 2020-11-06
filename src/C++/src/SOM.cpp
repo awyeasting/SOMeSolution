@@ -223,7 +223,8 @@ void SOM::normalizeData(double *trainData, int num_examples)	//Can max or min se
 			if (trainData[i*_dimensions + d] < this->_featureMins[d]) {
 				this->_featureMins[d] = trainData[i*_dimensions + d];
 			}
-		}
+		}//When finding max and min BLAS can only get 1 of them since only a find greatest absolute value. Also buffers are |dimensions| not |examples|. Unfortunately |x|=|-x| is an issue.
+		//It is not easy to know if the -x or x will be chosen. Also be careful of stepping outside the bounds for training data When checking if a max or min index was received 
 		for (int i = 0; i < num_examples; i++) {
 			trainData[i*_dimensions + d] = (trainData[i*_dimensions + d] - this->_featureMins[d])/(this->_featureMaxes[d]-this->_featureMins[d]);
 		}
@@ -253,7 +254,7 @@ void SOM::updateNodeWeights(int x, int y, double* example, double learning_rate,
 	//{
 		//this->_weights[calcIndex(x,y,d)] += alpha * (example[d] - this->_weights[calcIndex(x,y,d)]);//Note that x and y are const, d is the iterator
 	}*/
-}
+}//The benefits for using BLAS here are an unknown since BLAS is fast but more accesses and alterations occur in total.
 
 /*
 	Generate a vector of size numFeatures
