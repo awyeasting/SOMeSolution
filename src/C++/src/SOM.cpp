@@ -256,7 +256,7 @@ std::fstream& SOM::GotoLine(std::fstream& file, unsigned int num){
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
-void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed)
+void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed, unsigned int map_seed)
 {
 	double * train_data;
 	int start, shift, read_count;
@@ -338,6 +338,7 @@ void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned in
 	//Rank 0 needs to do the initalization of the map.
 	if (current_rank == 0)
 	{
+		srand(map_seed);
 		this->_weights = (double *)malloc(_width * _height * _dimensions * sizeof(double));
 		for (int i = 0; i < _width; i++) {
 			for (int j = 0; j < _height; j++) {
