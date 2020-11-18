@@ -25,6 +25,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	this->_dimensions = dimensions;
 	this-> _buffer = (double*)malloc(this->_dimensions * sizeof(double));
 	this-> _buffer2 = (double*)malloc(this->_dimensions * sizeof(double));
+	this->_buffer_examplesize = (double*)malloc(num_examples * sizeof(double));
 	this->_zeroes = (double*)malloc(this->_dimensions * sizeof(double));
 	cblas_dscal(_dimensions,0.0,_zeroes,1);
 	this->_ones = (double*)malloc(this->_dimensions * sizeof(double));
@@ -110,14 +111,18 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 			for (int j = 0; j < num_examples; j++) {
 				denominators[i] += H[j*_width*_height + i];
 			}
-		}
+		}//Can't use BLAS here. Only absolute value sums can be taken
 
 		#pragma omp parallel for
 		for (int i = 0; i < _width * _height; i++) {
 			for (int d = 0; d < _dimensions; d++) {
 				numerators[i * _dimensions + d] = 0.0;
+				cblas_dcopy(num_examples,trainData + d, dimensions, this->_buffer_examplesize, 1);//copy the relevant portions of trainData to buffer
+				cblas_daxpy(num_examples,1,H + i,_width*_height + i,this->_buffer_examplesize,1);
+
 				for (int j = 0; j < num_examples; j++) {
-					numerators[i*_dimensions + d] += H[j*_width*_height + i] * trainData[j*_dimensions + d];
+					numerators[i*_dimensions + d] += this->_buffer_examplesize[j];
+					//H[j*_width*_height + i] * trainData[j*_dimensions + d];
 				}
 			}
 		}
@@ -134,6 +139,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	free(D);
 	free(_buffer);
 	free(_buffer2);
+	free(_buffer_examplesize);
 	free (m_sq);
 	free (x_sq);
 	free(H);
@@ -206,7 +212,7 @@ void SOM::load_weights(std::istream &in)
 /*
 	Normalizes given data to be between 0 and 1 for each feature
 */
-void SOM::normalizeData(double *trainData, int num_examples)	//Can max or min search be expedited by initially knowing greatest abs value?
+void SOM::normalizeData(double *trainData, int num_examples)	//Users should give more than 1 example.
 {
 	if(num_examples < 2){
 		exit (EXIT_FAILURE);
@@ -223,7 +229,7 @@ void SOM::normalizeData(double *trainData, int num_examples)	//Can max or min se
 		
 			
 			Max_Abs_index = cblas_idamax(num_examples,trainData + d,this->_dimensions);//Find max absolute value in a row. 
-			if(Max_Abs_index == num_examples - 1){
+			if(Max_Abs_index > 0){
 				if(trainData[this->_dimensions * Max_Abs_index + d] > trainData[this->_dimensions * (Max_Abs_index - 1) + d]){
 					this->_featureMaxes[d] = trainData[this->_dimensions * Max_Abs_index + d]; 
 					for(int i=0;i < num_examples;i++){
@@ -250,7 +256,7 @@ void SOM::normalizeData(double *trainData, int num_examples)	//Can max or min se
 						}
 					}
 				}//Equality
-			}//Look backwards 1 row
+			}//Look backwards by 1 to judge absolute value
 			else{
 				if(trainData[this->_dimensions * Max_Abs_index + d] > trainData[this->_dimensions * (Max_Abs_index + 1) + d]){
 					this->_featureMaxes[d] = trainData[this->_dimensions * Max_Abs_index + d];
@@ -278,7 +284,7 @@ void SOM::normalizeData(double *trainData, int num_examples)	//Can max or min se
 						}
 					}
 				}//Equality
-			}//Look forwards 1 row
+			}//Look forwards by 1 item to judge the absolute value
 
 			/*
 			if (trainData[i*_dimensions + d] > this->_featureMaxes[d]) {
@@ -303,9 +309,8 @@ void SOM::normalizeData(double *trainData, int num_examples)	//Can max or min se
 			trainData[i*_dimensions + d] = trainData[i*_dimensions + d] / this->_buffer2[d];
 		}	//Now just have row d = row d / buffer2
 
-	}		
-}//This is super experimental. Replacing half the c++ iteration with BLAS 99% of the time should help but I don't know if there is is a benefit. 
-//The benefit is seriously lost if rows are entirely sparse. Perhaps include a sparse mode and non-sparse mode normalizing methods?	
+	}
+}//The CBLAS benefit here is unknown. Faster code but more accesses and alterations.
 
 /*
 	Update a node's weights to better match a given example
@@ -328,7 +333,7 @@ void SOM::updateNodeWeights(int x, int y, double* example, double learning_rate,
 	//{
 		//this->_weights[calcIndex(x,y,d)] += alpha * (example[d] - this->_weights[calcIndex(x,y,d)]);//Note that x and y are const, d is the iterator
 	}*/
-}//The benefits for using BLAS here are an unknown since BLAS is fast but more accesses and alterations occur in total.
+}
 
 /*
 	Generate a vector of size numFeatures
