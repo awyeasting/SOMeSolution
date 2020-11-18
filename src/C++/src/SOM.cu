@@ -233,6 +233,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	cudaMallocManaged(&denominators, this->_width * this->_height * sizeof(double));
 
 	cudaMalloc(&d_train, num_examples * this->_dimensions * sizeof(double));
+	// Fix the data for column major ordering
 	cudaMemcpy(trainData, d_train, num_examples * this->_dimensions * sizeof(double), cudaMemcpyHostToDevice);
 
 	double neighborhood_radius;
