@@ -63,6 +63,7 @@ void trainOneEpoch(cublasHandle_t &handle, double *train, double *weights, doubl
 	// D = X_sq - 2X^TM + M_sq
 	// D (xdn * nn)
 
+	
 	// Calc m_sq
 	// Elementwise multiply M by M
 	double *d_msq;
@@ -91,7 +92,6 @@ void trainOneEpoch(cublasHandle_t &handle, double *train, double *weights, doubl
 	// Elementwise multiply X by X
 	double *d_xsq;
 	cudaMalloc(&d_xsq, num_examples * dimensions * sizeof(double));
-	NUM_THREADS = 256;
 	NUM_BLOCKS = (int) ceil((float)(num_examples*dimensions)/NUM_THREADS);
 	elementMul<<<NUM_BLOCKS, NUM_THREADS>>>(train, train, d_xsq, num_examples * dimensions);
 	// Left multiply elementwise multiplied X by all ones matrix (of dim num examples x dimensions)
@@ -169,15 +169,16 @@ void trainOneEpoch(cublasHandle_t &handle, double *train, double *weights, doubl
 	// Calc numerators
 	// numer = H^T x X
 	cublasDgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, map_size, dimensions, num_examples, &alpha0, H, num_examples, train, num_examples, &beta0, numer, map_size);
-	/*for (int i = 0; i < map_size; i++) {
-		for (int d = 0; d < dimensions; d++) {
-			numer[i * dimensions + d] = 0.0;
-			for (int j = 0; j < num_examples; j++) {
-				numer[i*dimensions + d] += H[j*map_size + i] * train[j*dimensions + d];
-			}
-		}
-	}*/
+	//for (int i = 0; i < map_size; i++) {
+	//	for (int d = 0; d < dimensions; d++) {
+	//		numer[i * dimensions + d] = 0.0;
+	//		for (int j = 0; j < num_examples; j++) {
+	//			numer[i*dimensions + d] += H[j*map_size + i] * train[j*dimensions + d];
+	//		}
+	//	}
+	//}
 
+	cudaDeviceSynchronize();
 	cudaFree(H);
 }
 
@@ -224,9 +225,13 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	double time_constant = double(epochs) / log(initial_map_radius);
 
 	double *numerators, *denominators;
+	double *d_train;
 
-	cudaMallocManaged(&numerators, this->_width * this->_height * _dimensions * sizeof(double));
+	cudaMallocManaged(&numerators, this->_width * this->_height * this->_dimensions * sizeof(double));
 	cudaMallocManaged(&denominators, this->_width * this->_height * sizeof(double));
+
+	cudaMalloc(&d_train, num_examples * this->_dimensions * sizeof(double));
+	cudaMemcpy(trainData, d_train, num_examples * this->_dimensions * sizeof(double), cudaMemcpyHostToDevice);
 
 	double neighborhood_radius;
 	for(int epoch = 0; epoch < epochs; epoch++) {
@@ -234,7 +239,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		neighborhood_radius = initial_map_radius * exp(-double(epoch)/time_constant);
 
 		//trainOneEpoch(train,weights, D, m_sq, x_sq, BMUs, H, numer, denom, map_size, height, int num_examples, int dimensions, double initial_map_radius, double neighborhood_radius)
-		trainOneEpoch(handle, trainData, this->_weights, numerators, denominators, this->_width * this->_height, this->_height, num_examples, this->_dimensions, initial_map_radius, neighborhood_radius);
+		trainOneEpoch(handle, d_train, this->_weights, numerators, denominators, this->_width * this->_height, this->_height, num_examples, this->_dimensions, initial_map_radius, neighborhood_radius);
 
 		// Update codebook
 		for (int i = 0; i < this->_width * this->_height; i++) {
