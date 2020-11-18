@@ -62,7 +62,6 @@ void trainOneEpoch(cublasHandle_t &handle, double *train, double *weights, doubl
 	// Find BMUs for every input instance
 	// D = X_sq - 2X^TM + M_sq
 	// D (xdn * nn)
-
 	
 	// Calc m_sq
 	// Elementwise multiply M by M
@@ -113,12 +112,11 @@ void trainOneEpoch(cublasHandle_t &handle, double *train, double *weights, doubl
 	// D = x_sq - 2 * x^t * m + m_sq
 
 	const double alpha1 = -2.0f;
-	const double beta1 = 1.0f;
 
 	cudaDeviceSynchronize();
 
 	// m_sq = - 2 * (x^t * m) + (m_sq)
-	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, num_examples, map_size, dimensions, &alpha1, train, num_examples, weights, dimensions, &beta1, m_sq, num_examples);
+	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, num_examples, map_size, dimensions, &alpha1, train, num_examples, weights, map_size, &beta0, m_sq, num_examples);
 
 	cudaDeviceSynchronize();
 
@@ -160,12 +158,16 @@ void trainOneEpoch(cublasHandle_t &handle, double *train, double *weights, doubl
 	// Calc denominators
 	// Left multiply H by a num_examples dimensional vector of ones
 	cudaMalloc(&d_o, num_examples * sizeof(double));
-	NUM_BLOCKS = (int) ceil((float)(num_examples)/NUM_THREADS);
+	NUM_BLOCKS = (int)ceil((float)num_examples/NUM_THREADS);
+	
 	fillOnes<<<NUM_BLOCKS,NUM_THREADS>>>(d_o, num_examples);
-	// denom = ones * H
-	cublasDgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, 1, map_size, num_examples, &alpha0, d_o, num_examples, H, num_examples, &beta0, denom, num_examples);
+	// denom = ones^T (1 x num examples) * H (num examples x map size)
+	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, 1, map_size, num_examples, &alpha0, d_o, 1, H, num_examples, &beta0, denom, 1);
+	
+	cudaDeviceSynchronize();
+	
 	cudaFree(d_o);
-
+	
 	// Calc numerators
 	// numer = H^T x X
 	cublasDgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, map_size, dimensions, num_examples, &alpha0, H, num_examples, train, num_examples, &beta0, numer, map_size);
