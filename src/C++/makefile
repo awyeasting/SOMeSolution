@@ -1,10 +1,10 @@
-CXX       := g++
-CXX_FLAGS := -fopenmp -std=c++17
+CXX       := nvcc
+CXX_FLAGS := -lcublas
 
 BIN := bin
 SRC := src
 INCLUDE := include
-EXECUTABLE := somwork
+EXECUTABLE := somwork_cuda
 LIBRARY := somesolution
 
 all: library
@@ -17,7 +17,7 @@ run: clean build
 
 library:
 	@echo "Building somesolution library..."
-	$(CXX) $(CXX_FLAGS) -c -I$(INCLUDE) $(SRC)/SOM.cpp -o $(BIN)/$(LIBRARY).o
+	$(CXX) $(CXX_FLAGS) -c -I$(INCLUDE) $(SRC)/SOM.cu -o $(BIN)/$(LIBRARY).o
 	ar rcs $(BIN)/$(LIBRARY).a $(BIN)/$(LIBRARY).o
 
 build: library
