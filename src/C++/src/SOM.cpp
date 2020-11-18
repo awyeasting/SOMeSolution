@@ -256,7 +256,7 @@ std::fstream& SOM::GotoLine(std::fstream& file, unsigned int num){
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
-void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed, unsigned int map_seed)
+void SOM::train_data(std::string fileName, int fileSize, unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed, unsigned int map_seed)
 {
 	double * train_data;
 	int start, shift, read_count;
@@ -272,7 +272,7 @@ void SOM::train_data(std::string fileName,unsigned int current_rank, unsigned in
 		read_count += 1;
 	}
 
-	if (fileName == "")
+	if (fileSize >= 0)
 	{
 		int current_rank_seed;
 		//Rank 0 create seed value array. Scatter to current_rank_seed.
