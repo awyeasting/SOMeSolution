@@ -19,18 +19,25 @@ SOM::SOM(std::istream &in) {
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
-void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate)
+void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate, int seed)
 {
 	this->_dimensions = dimensions;
 	// Normalize data (to be within 0 to 1)
+	std::cout << "Printing Training Data PreNormalize" << std::endl;
+	printDoubles(trainData,num_examples*_dimensions, num_examples);
+	std::cout << std::endl;
 	normalizeData(trainData, num_examples);
 
 	// Randomly initialize codebook
 	this->_weights = (double *)malloc(_width * _height * _dimensions * sizeof(double));
+	srand(seed);
+
 	for (int i = 0; i < _width; i++) {
 		for (int j = 0; j < _height; j++) {
 			for (int d = 0; d < _dimensions; d++) {
-				this->_weights[calcIndex(i,j,d)] = randWeight();
+				double newWeight = randWeight();
+				std::cout << "i" << i << " j" << j << "d" << d << " weight " << newWeight << std::endl;
+				this->_weights[calcIndex(i,j,d)] = newWeight;
 			}
 		}
 	}
@@ -48,7 +55,16 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	double* denominators = (double *)malloc(_width * _height * sizeof(double));
 
 	double neighborhood_radius;
+	std::cout << "Printing Training Data" << std::endl;
+	printDoubles(trainData,num_examples*_dimensions, num_examples);
+	std::cout << std::endl;
+
 	for(int epoch = 0; epoch < epochs; epoch++) {
+		
+		std::cout << "printing map" << std::endl;
+		printDoubles(_weights, _width*_height*_dimensions, _width *_height);
+		std::cout << std::endl;
+
 		//learning_rate = initial_learning_rate * exp(-double(epoch)/time_constant);
 		neighborhood_radius = initial_map_radius * exp(-double(epoch)/time_constant);
 
@@ -62,7 +78,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		// Calc x_sq
 		SqDists(trainData, num_examples, _dimensions, x_sq);
 
-		for (int j = 0; j < num_examgitples; j++) {
+		for (int j = 0; j < num_examples; j++) {
 			for (int i = 0; i < _width * _height; i++) {
 				// Calc x^Tm
 				double xm = 0;
@@ -109,6 +125,11 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 			}
 		}
 
+		std::cout << "printing local numerators" << std::endl;
+		printDoubles(numerators, _width *_height *_dimensions, _width * _height);
+		std::cout << "printing local denoms" << std::endl;
+		printDoubles(denominators, _width*_height, _width * _height);
+
 		// Update codebook
 		for (int i = 0; i < _width * _height; i++) {
 			for (int d = 0; d < _dimensions; d++) {
@@ -125,6 +146,21 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	free(numerators);
 	free(denominators);
 	//free(N);
+}
+
+void SOM::printDoubles(double *doubleList, unsigned int numDoubles, unsigned int numLines)
+{
+	unsigned int numPerLine = numDoubles/numLines;
+	unsigned int counter = 0;
+	while(counter < numDoubles)
+	{
+		for (int j = 0; j< numPerLine; j++)
+		{
+			std::cout << doubleList[counter] << " ";
+			counter++;
+		}
+		std::cout << std::endl;
+	}
 }
 
 /*

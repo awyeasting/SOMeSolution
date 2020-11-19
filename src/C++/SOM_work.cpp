@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
 	int epochs = 1000;
 	unsigned int width = 8, height = 8;
 	double learningRate = 0.1;
-
+	int seed= time(NULL);
 	int posArgPos = 0;
 	std::cout << "Reading program arguments...\n" << std::flush;
 	for(int i = 1; i < argc; i++) {
@@ -105,10 +105,19 @@ int main(int argc, char *argv[])
 					std::cout << "Invalid epochs argument." << std::endl;
 				}
 				i++;
-			} else {
+			}
+			else {
 				std::cout << "If the --epochs option is used a valid number of epochs should be specified." << std::endl;
 			}
-		}else {
+		}
+		else if (strcmp(argv[i], "--seed") == 0 || strcmp(argv[i], "-s") == 0){
+			if (i + 1 < argc)
+			{
+				seed = std::stoi(argv[i+1]);
+			}
+			i++;
+		} 
+		else {
 			// Positional arguments
 			// width height trainingdatafile.txt
 			switch(posArgPos) {
@@ -150,7 +159,7 @@ int main(int argc, char *argv[])
 	// Train SOM and time training
 	std::cout << "Training SOM...\n"<< std::flush;
 	auto start = std::chrono::high_resolution_clock::now();
-	newSom.train_data(trainData, n, d, epochs, learningRate);
+	newSom.train_data(trainData, n, d, epochs, learningRate, seed);
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(stop - start);
 	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl << std::flush;

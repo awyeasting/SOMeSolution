@@ -14,8 +14,8 @@ public:
 	SOM(unsigned int width, unsigned int height);
 	SOM(std::istream &in);
 
-	void train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate);
-	
+	void train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate, int seed);
+	void printDoubles(double *doubleList, unsigned int numDoubles, unsigned int numLines);
 	void save_weights(std::ostream &out);
 
 private:
