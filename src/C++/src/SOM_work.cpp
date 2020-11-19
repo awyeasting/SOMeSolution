@@ -156,14 +156,12 @@ int main(int argc, char *argv[])
 	}
 	
 	//Broadcast the rows_count, dimensions, and epochs that are all handled from the command line. 
-	std::cout << "TrainFileName " << trainingFileName << " number of characters" << trainingFileName.size() << rank << std::endl;
 
 	int fileSize = trainingFileName.size();
 	MPI_Bcast(&fileSize, 1, MPI::INT, 0, MPI::COMM_WORLD);
 
 	
 	char *file_nameString = (char*)malloc(sizeof(char) * fileSize);
-	std::cout << "fileSize " << fileSize << std::endl;
 	
 	if (rank == 0)
 	{
@@ -172,7 +170,6 @@ int main(int argc, char *argv[])
 			file_nameString[i]=trainingFileName[i];
 		}
 	}
-	std::cout << "fileName " << file_nameString << "Rank " << rank << std::endl;
 	
 	
 	MPI_Barrier(MPI::COMM_WORLD);
@@ -186,13 +183,12 @@ int main(int argc, char *argv[])
 	MPI_Bcast(file_nameString, fileSize, MPI::CHAR, 0, MPI::COMM_WORLD);
 	MPI_Scatter(seedArray, 1, MPI::UNSIGNED, &seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 
-	std::cout << "fileName " << (std::string)file_nameString << " Rank " << rank << std::endl;
-	std::cout << "fileSize " << fileSize << " Rank " << rank << std::endl;
+	//std::cout << "fileName " << (std::string)file_nameString << " Rank " << rank << std::endl;
+	//std::cout << "fileSize " << fileSize << " Rank " << rank << std::endl;
 	// Create untrained SOM
 
 	
 	SOM newSom = SOM(width, height);
-	std::cout << "epochs" << epochs << std::endl;
 	// Train SOM and time training
 	auto start = std::chrono::high_resolution_clock::now();
 	newSom.train_data((std::string)file_nameString, fileSize, rank, num_procs, epochs, d, rows_count, seed, map_seed);

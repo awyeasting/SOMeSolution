@@ -25,6 +25,7 @@ public:
 	double* generateRandomTrainingInputs(unsigned int examples, unsigned int dimensions, int seedValue);
 	double* loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int& cols, int read_count, double* featureMaxes, double* featureMins);
 	std::fstream& GotoLine(std::fstream& file, unsigned int num);
+	void printDoubles(double *doubleList, unsigned int numDoubles, unsigned int numLines);
 private:
 
 	unsigned int _width;
