@@ -162,6 +162,8 @@ void trainOneEpoch(cublasHandle_t &handle, double *train, double *weights, doubl
 
 	cudaFree(BMUs);
 
+	const double beta1 = 0.0f;
+
 	// Calc denominators
 	// Left multiply H by a num_examples dimensional vector of ones
 	cudaMalloc(&d_o, num_examples * sizeof(double));
@@ -169,7 +171,7 @@ void trainOneEpoch(cublasHandle_t &handle, double *train, double *weights, doubl
 	
 	fillOnes<<<NUM_BLOCKS,NUM_THREADS>>>(d_o, num_examples);
 	// denom = ones^T (1 x num examples) * H (num examples x map size)
-	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, 1, map_size, num_examples, &alpha0, d_o, 1, H, num_examples, &beta0, denom, 1);
+	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, 1, map_size, num_examples, &alpha0, d_o, 1, H, num_examples, &beta1, denom, 1);
 	
 	cudaDeviceSynchronize();
 	
@@ -177,7 +179,7 @@ void trainOneEpoch(cublasHandle_t &handle, double *train, double *weights, doubl
 	
 	// Calc numerators
 	// numer = H^T x X
-	cublasDgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, map_size, dimensions, num_examples, &alpha0, H, num_examples, train, num_examples, &beta0, numer, map_size);
+	cublasDgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, map_size, dimensions, num_examples, &alpha0, H, num_examples, train, num_examples, &beta1, numer, map_size);
 	//for (int i = 0; i < map_size; i++) {
 	//	for (int d = 0; d < dimensions; d++) {
 	//		numer[i * dimensions + d] = 0.0;
@@ -216,25 +218,28 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	cublasCreate(&handle);
 
 	this->_dimensions = dimensions;
+	int map_size = this->_width * this->_height;
+
 	// Normalize data (to be within 0 to 1)
 	// TODO: Normalize on GPU after copying training data
 	normalizeData(trainData, num_examples);
 	// Convert training data from row major ordering to the column major ordering of cuBLAS
 	double *tempd_train, *d_train;
 	cudaMalloc(&tempd_train, num_examples * dimensions * sizeof(double));
+	cudaMalloc(&d_train, num_examples * dimensions * sizeof(double));
 	cudaMemcpy(tempd_train, trainData, num_examples * dimensions * sizeof(double), cudaMemcpyHostToDevice);
 	int NUM_THREADS = 256;
-	int NUM_BLOCKS = (int)ceil((float)(N*M)/THREADS);
+	int NUM_BLOCKS = (int)ceil((float)(map_size)/NUM_THREADS);
 	rowToColumnMajor<<<NUM_BLOCKS, NUM_THREADS>>>(tempd_train, d_train, num_examples, dimensions, num_examples * dimensions);
 	cudaDeviceSynchronize();
 	cudaFree(tempd_train);
 
 	// Randomly initialize codebook
-	cudaMallocManaged(&this->_weights, _width * _height * _dimensions * sizeof(double));
+	cudaMallocManaged(&this->_weights, map_size * dimensions * sizeof(double));
 	curandGenerator_t gen;
 	curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
 	// TODO: curandSetPseudoRandomGeneratorSeed(gen, );
-	curandGenerateUniformDouble(gen, &this->weights, _width * _height * _dimensions);
+	curandGenerateUniformDouble(gen, this->_weights, map_size * dimensions);
 	cudaDeviceSynchronize();
 
 	// Calc initial map radius
@@ -243,8 +248,8 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 
 	double *numerators, *denominators;
 
-	cudaMallocManaged(&numerators, this->_width * this->_height * this->_dimensions * sizeof(double));
-	cudaMallocManaged(&denominators, this->_width * this->_height * sizeof(double));
+	cudaMallocManaged(&numerators, map_size * this->_dimensions * sizeof(double));
+	cudaMallocManaged(&denominators, map_size * sizeof(double));
 
 	double neighborhood_radius;
 	for(int epoch = 0; epoch < epochs; epoch++) {
@@ -252,19 +257,19 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		neighborhood_radius = initial_map_radius * exp(-double(epoch)/time_constant);
 
 		//trainOneEpoch(train,weights, D, m_sq, x_sq, BMUs, H, numer, denom, map_size, height, int num_examples, int dimensions, double initial_map_radius, double neighborhood_radius)
-		trainOneEpoch(handle, d_train, this->_weights, numerators, denominators, this->_width * this->_height, this->_height, num_examples, this->_dimensions, initial_map_radius, neighborhood_radius);
+		trainOneEpoch(handle, d_train, this->_weights, numerators, denominators, map_size, this->_height, num_examples, this->_dimensions, initial_map_radius, neighborhood_radius);
 
-		// TODO: Verify that weights for a given node will be sequential and not all over the place due to row major ordering
-		// Update codebook (based on assumption weights appear sequentially)
-		for (int i = 0; i < this->_width * this->_height; i++) {
+		// Update codebook
+		for (int i = 0; i < map_size; i++) {
 			for (int d = 0; d < dimensions; d++) {
-				this->_weights[i*dimensions + d] = numerators[i*this->_dimensions + d]/denominators[i];
+				this->_weights[i*dimensions + d] = numerators[i + d*map_size]/denominators[i];
 			}
 		}
 	}
 
 	cudaFree(numerators);
 	cudaFree(denominators);
+	cudaFree(d_train);
 
 	cublasDestroy(handle);
 }
