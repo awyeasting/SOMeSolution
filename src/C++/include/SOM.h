@@ -8,6 +8,7 @@
 #include <math.h>
 #include <time.h>
 
+#include <curand.h>
 #include "cublas_v2.h"
 
 void SqDists(double* m, int loop, int dim, double* output);
