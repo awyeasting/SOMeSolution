@@ -64,7 +64,9 @@ double h(int j, int i, double initial_radius, double radius, int* BMUs, int heig
 	return initial_radius * exp(-(double)((j_x - i_x) * (j_x - i_x) + (j_y - i_y) * (j_y - i_y))/(radius * radius));
 }
 
-void trainOneEpoch(cublasHandle_t &handle, double *train, double *weights, double *numer, double *denom, int map_size, int height, int num_examples, int dimensions, double initial_map_radius, double neighborhood_radius) {
+void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *weights, double *numer, double *denom, int map_size, int height, int num_examples, int dimensions, double initial_map_radius, double neighborhood_radius) {
+
+	cudaSetDevice(device);
 
 	// Find BMUs for every input instance
 	// D = X_sq - 2X^TM + M_sq
@@ -180,14 +182,6 @@ void trainOneEpoch(cublasHandle_t &handle, double *train, double *weights, doubl
 	// Calc numerators
 	// numer = H^T x X
 	cublasDgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, map_size, dimensions, num_examples, &alpha0, H, num_examples, train, num_examples, &beta1, numer, map_size);
-	//for (int i = 0; i < map_size; i++) {
-	//	for (int d = 0; d < dimensions; d++) {
-	//		numer[i * dimensions + d] = 0.0;
-	//		for (int j = 0; j < num_examples; j++) {
-	//			numer[i*dimensions + d] += H[j*map_size + i] * train[j*dimensions + d];
-	//		}
-	//	}
-	//}
 
 	cudaDeviceSynchronize();
 	cudaFree(H);
@@ -214,64 +208,142 @@ SOM::SOM(std::istream &in) {
 */
 void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate)
 {
-	cublasHandle_t handle;
-	cublasCreate(&handle);
-
 	this->_dimensions = dimensions;
-	int map_size = this->_width * this->_height;
+	const int map_size = this->_width * this->_height;
+
+	// Establish multi gpu setup
+	int NUM_GPUS;
+	cudaGetDeviceCount(&NUM_GPUS);
+	omp_set_dynamic(0); // Disable dynamic teams
+	omp_set_num_threads(NUM_GPUS);
+
+	// Allocate memory associated with each GPU
+	cublasHandle_t* handles = (cublasHandle_t *)malloc(NUM_GPUS * sizeof(cublasHandle_t));
+	double **d_train = (double **)malloc(NUM_GPUS * sizeof(double *));
+	double **d_weights = (double **)malloc(NUM_GPUS * sizeof(double *));
+	double **d_numer = (double **)malloc(NUM_GPUS * sizeof(double *));
+	double **d_denom = (double **)malloc(NUM_GPUS * sizeof(double *));
+	int *GPU_EXAMPLES = (int *)malloc(NUM_GPUS * sizeof(int));
+	int *GPU_OFFSET = (int *)malloc(NUM_GPUS * sizeof(int));
+	GPU_OFFSET[0] = 0;
+	for (int gpu = 0; gpu < NUM_GPUS; gpu++) {
+		cudaSetDevice(gpu);
+		// Create cublas handles associated with each device
+		cublasCreate(&handles[gpu]);
+
+		// Set the number of examples allocated to each GPU simply by equal division
+		GPU_EXAMPLES[gpu] = num_examples/NUM_GPUS;
+		if (gpu < NUM_GPUS-1)
+			GPU_OFFSET[gpu+1] = GPU_OFFSET[gpu] + GPU_EXAMPLES[gpu];
+		// Allocate remainder examples to last gpu
+		else
+			GPU_EXAMPLES[gpu] += num_examples - (GPU_OFFSET[gpu] + GPU_EXAMPLES[gpu]);
+		
+		// Allocate space for current GPU's share of the examples
+		cudaMalloc(&d_train[gpu], (GPU_EXAMPLES[gpu] * dimensions * sizeof(double))/NUM_GPUS);
+		// Allocate space for current GPU's copy of the map
+		cudaMalloc(&d_weights[gpu], map_size * dimensions * sizeof(double));
+		// Allocate space for current GPU's copy of numerators and denominators
+		cudaMallocManaged(&d_numer[gpu], map_size * this->_dimensions * sizeof(double));
+		cudaMallocManaged(&d_denom[gpu], map_size * sizeof(double));
+	}
 
 	// Normalize data (to be within 0 to 1)
-	// TODO: Normalize on GPU after copying training data
 	normalizeData(trainData, num_examples);
-	// Convert training data from row major ordering to the column major ordering of cuBLAS
-	double *tempd_train, *d_train;
-	cudaMalloc(&tempd_train, num_examples * dimensions * sizeof(double));
-	cudaMalloc(&d_train, num_examples * dimensions * sizeof(double));
-	cudaMemcpy(tempd_train, trainData, num_examples * dimensions * sizeof(double), cudaMemcpyHostToDevice);
+	// Split training data onto gpus
+	// then convert from row major ordering to the column major ordering of cuBLAS
+	double **tempd_train = (double **)malloc(NUM_GPUS * sizeof(double *));
 	int NUM_THREADS = 256;
-	int NUM_BLOCKS = (int)ceil((float)(map_size)/NUM_THREADS);
-	rowToColumnMajor<<<NUM_BLOCKS, NUM_THREADS>>>(tempd_train, d_train, num_examples, dimensions, num_examples * dimensions);
-	cudaDeviceSynchronize();
-	cudaFree(tempd_train);
+	int NUM_BLOCKS;
+	for (int gpu = 0; gpu < NUM_GPUS; gpu++) {
+		cudaSetDevice(gpu);
+		NUM_BLOCKS = (int)ceil((float)(GPU_EXAMPLES[gpu]*dimensions)/NUM_THREADS);
+		cudaMalloc(&tempd_train[gpu], GPU_EXAMPLES[gpu] * dimensions * sizeof(double));
+		cudaMemcpy(tempd_train[gpu], &trainData[GPU_OFFSET[gpu]], GPU_EXAMPLES[gpu] * dimensions * sizeof(double), cudaMemcpyHostToDevice);
+		rowToColumnMajor<<<NUM_BLOCKS, NUM_THREADS>>>(tempd_train[gpu], d_train[gpu], GPU_EXAMPLES[gpu], dimensions, GPU_EXAMPLES[gpu] * dimensions);
+	}
 
-	// Randomly initialize codebook
-	cudaMallocManaged(&this->_weights, map_size * dimensions * sizeof(double));
+	// Randomly initialize codebook	on first gpu
+	const int CODEBOOK_INIT_DEVICE = 0;
+	cudaSetDevice(CODEBOOK_INIT_DEVICE);
 	curandGenerator_t gen;
 	curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
 	// TODO: curandSetPseudoRandomGeneratorSeed(gen, );
-	curandGenerateUniformDouble(gen, this->_weights, map_size * dimensions);
-	cudaDeviceSynchronize();
+	curandGenerateUniformDouble(gen, d_weights[CODEBOOK_INIT_DEVICE], map_size * dimensions);
+	this->_weights = (double *)malloc(map_size * dimensions * sizeof(double));
+	// Copy map from the generator gpu to the rest
+	for (int gpu = 0; gpu < NUM_GPUS; gpu++) {
+		if (gpu != CODEBOOK_INIT_DEVICE)
+			cudaMemcpyPeerAsync(d_weights[gpu],gpu,d_weights[CODEBOOK_INIT_DEVICE],CODEBOOK_INIT_DEVICE, map_size * dimensions * sizeof(double));
+	}
+	// Copy map from gpu to cpu
+	cudaMemcpy(this->_weights, d_weights[CODEBOOK_INIT_DEVICE], map_size * dimensions * sizeof(double), cudaMemcpyDeviceToHost);
 
 	// Calc initial map radius
 	double initial_map_radius = _width < _height ? ((double)_width) / 2.0 : ((double)_height) / 2.0;
 	double time_constant = double(epochs) / log(initial_map_radius);
 
-	double *numerators, *denominators;
-
-	cudaMallocManaged(&numerators, map_size * this->_dimensions * sizeof(double));
-	cudaMallocManaged(&denominators, map_size * sizeof(double));
-
+	// Synchronize devices and remove any temporary preprocessing memory allocated
+	for (int gpu = 0; gpu < NUM_GPUS; gpu++) {
+		cudaSetDevice(gpu);
+		cudaDeviceSynchronize();
+		cudaFree(tempd_train[gpu]);
+	}
+	free(tempd_train);
 	double neighborhood_radius;
 	for(int epoch = 0; epoch < epochs; epoch++) {
-		//learning_rate = initial_learning_rate * exp(-double(epoch)/time_constant);
+		// Calculate current neighborhood radius
 		neighborhood_radius = initial_map_radius * exp(-double(epoch)/time_constant);
 
-		//trainOneEpoch(train,weights, D, m_sq, x_sq, BMUs, H, numer, denom, map_size, height, int num_examples, int dimensions, double initial_map_radius, double neighborhood_radius)
-		trainOneEpoch(handle, d_train, this->_weights, numerators, denominators, map_size, this->_height, num_examples, this->_dimensions, initial_map_radius, neighborhood_radius);
+		// Train a single epoch on all gpus
+		#pragma omp parallel
+		{
+			int gpu = omp_get_thread_num();
+			cudaSetDevice(gpu);
+			trainOneEpoch(handles[gpu], gpu, d_train[gpu], d_weights[gpu], d_numer[gpu], d_denom[gpu], map_size, this->_height, GPU_EXAMPLES[gpu], this->_dimensions, initial_map_radius, neighborhood_radius);
+		}
 
-		// Update codebook
+		// Update codebook/map
 		for (int i = 0; i < map_size; i++) {
+			// Reduce all denominators to the first gpu (on cpu)
+			for(int gpu = 1; gpu < NUM_GPUS; gpu++) {
+				d_denom[0][i] += d_denom[gpu][i];
+			}
 			for (int d = 0; d < dimensions; d++) {
-				this->_weights[i*dimensions + d] = numerators[i + d*map_size]/denominators[i];
+				// Reduce all numerators to the first gpu (on cpu)
+				for(int gpu = 1; gpu < NUM_GPUS; gpu++) {
+					d_numer[0][i + d*map_size] += d_numer[gpu][i + d*map_size];
+				}
+				this->_weights[i*dimensions + d] = d_numer[0][i + d*map_size] / d_denom[0][i];
+			}
+		}
+
+		// If not the last epoch update gpu copies of codebook/map
+		if (epoch != epochs - 1) { 
+			#pragma omp parallel
+			{
+				int gpu = omp_get_thread_num();
+				cudaMemcpy(d_weights[gpu], this->_weights, map_size * dimensions * sizeof(double), cudaMemcpyHostToDevice);
 			}
 		}
 	}
 
-	cudaFree(numerators);
-	cudaFree(denominators);
-	cudaFree(d_train);
+	for (int gpu = 0; gpu < NUM_GPUS; gpu++) {
+		cudaSetDevice(gpu);
+		cublasDestroy(handles[gpu]);
+		cudaFree(d_train[gpu]);
+		cudaFree(d_weights[gpu]);
+		cudaFree(d_numer[gpu]);
+		cudaFree(d_denom[gpu]);
+	}
 
-	cublasDestroy(handle);
+	free(GPU_EXAMPLES);
+	free(GPU_OFFSET);
+	free(handles);
+	free(d_train);
+	free(d_weights);
+	free(d_numer);
+	free(d_denom);
 }
 
 /*
