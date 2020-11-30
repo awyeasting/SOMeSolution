@@ -35,7 +35,9 @@ int main(int argc, char *argv[])
 	unsigned int num_procs = MPI::COMM_WORLD.Get_size();
 	unsigned int rank = MPI::COMM_WORLD.Get_rank();
 	
-	std::string trainingFileName = "";
+	//std::string trainingFileName = "";
+	char * trainingFileName = new char[100];
+	trainingFileName = "";
 	std::string outFileName = "weights.txt";
 	std::string versionNumber = "0.1.0";
 	int epochs = 10;
@@ -46,6 +48,7 @@ int main(int argc, char *argv[])
 	unsigned int* seedArray = new unsigned int[num_procs];
 	unsigned int map_seed = 0;
 	bool use_mpi = false;
+	int lengthOf = 0;
 
 	if (rank == 0)
 	{
@@ -128,7 +131,11 @@ int main(int argc, char *argv[])
 						}
 						break;
 					case 2:
-						trainingFileName = std::string(argv[i]);
+						std::cout << (std::string)argv[i] << std::endl;
+						lengthOf = strlen(argv[i]);
+						trainingFileName = (char *)malloc(sizeof(char) * lengthOf);
+						strcpy(trainingFileName, argv[i]);
+						//trainingFileName = std::string(argv[i]);
 						break;
 					default:
 						std::cout << "Unrecognized positional argument, '" << argv[i] << "'" << std::endl;
@@ -137,13 +144,14 @@ int main(int argc, char *argv[])
 			}
 		}
 		// Load training data
-		if (trainingFileName == "")
+		if (lengthOf <= 0)
 		{
+			std::cout << "inside generate path" << std::endl;
 			rows_count = n;
 		}
 		else
 		{
-			rows_count = countRowsAndCols(trainingFileName, n, d);
+			rows_count = countRowsAndCols((std::string)trainingFileName, n, d);
 		}
 		if (rows_count == NULL) {
 			return 0;
@@ -156,22 +164,32 @@ int main(int argc, char *argv[])
 	}
 	
 	//Broadcast the rows_count, dimensions, and epochs that are all handled from the command line. 
-
-	int fileSize = trainingFileName.size();
+	int fileSize = strlen(trainingFileName);
 	MPI_Bcast(&fileSize, 1, MPI::INT, 0, MPI::COMM_WORLD);
 
-	
+	if (rank != 0 && fileSize > 0)
+	{
+		trainingFileName = (char *)malloc(sizeof(char) * fileSize);
+	}
+
+	std::cout << "fileName " << (std::string)trainingFileName << std::endl;
+	std::cout << "fileSize " << fileSize << " Rank " << rank << std::endl;
+	/*
 	char *file_nameString = (char*)malloc(sizeof(char) * fileSize);
 	
 	if (rank == 0)
 	{
+		std::cout << std::endl;
 		for(int i = 0; i < trainingFileName.size(); i++)
 		{
+			//std::cout << trainingFileName[i] << std::endl;
 			file_nameString[i]=trainingFileName[i];
 		}
+		std::cout << (std::string)file_nameString << std::endl;
 	}
-	
-	
+
+	*/
+
 	MPI_Barrier(MPI::COMM_WORLD);
 	MPI_Bcast(&rows_count, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&d, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
@@ -180,10 +198,10 @@ int main(int argc, char *argv[])
 	MPI_Bcast(&height, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&map_seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	
-	MPI_Bcast(file_nameString, fileSize, MPI::CHAR, 0, MPI::COMM_WORLD);
+	MPI_Bcast(trainingFileName, fileSize, MPI::CHAR, 0, MPI::COMM_WORLD);
 	MPI_Scatter(seedArray, 1, MPI::UNSIGNED, &seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 
-	//std::cout << "fileName " << (std::string)file_nameString << " Rank " << rank << std::endl;
+	std::cout << "fileName " << (std::string)trainingFileName << std::endl;
 	//std::cout << "fileSize " << fileSize << " Rank " << rank << std::endl;
 	// Create untrained SOM
 
@@ -191,7 +209,7 @@ int main(int argc, char *argv[])
 	SOM newSom = SOM(width, height);
 	// Train SOM and time training
 	auto start = std::chrono::high_resolution_clock::now();
-	newSom.train_data((std::string)file_nameString, fileSize, rank, num_procs, epochs, d, rows_count, seed, map_seed);
+	newSom.train_data((std::string)trainingFileName, fileSize, rank, num_procs, epochs, d, rows_count, seed, map_seed);
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(stop - start);
 	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
@@ -204,7 +222,7 @@ int main(int argc, char *argv[])
 		if (outFile.is_open()) {
 			newSom.save_weights(outFile);
 			outFile.close();
-			std::cout << "SOM saved to " << outFileName << std::endl;
+			//std::cout << "SOM saved to " << outFileName << std::endl;
 		}
 	}
 	

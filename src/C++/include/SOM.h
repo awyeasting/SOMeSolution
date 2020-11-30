@@ -11,6 +11,7 @@
 #include <omp.h>
 #include <time.h>
 #include "mpi.h"
+#include <string.h>
 
 class SOM
 {

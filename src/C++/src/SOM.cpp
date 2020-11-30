@@ -388,15 +388,6 @@ void SOM::train_data(std::string fileName, int fileSize, unsigned int current_ra
 	for(int epoch = 0; epoch < epochs; epoch++) {
 
 		//Filling localMap in rank 0 to broadcast to all processes
-		MPI_Barrier(MPI::COMM_WORLD);
-		if (current_rank == 0)
-		{
-			//std::cout << "printing map" << std::endl;
-			//printDoubles(_weights, _width*_height*_dimensions, _width *_height);
-			//std::cout << std::endl;
-		}
-		MPI_Barrier(MPI::COMM_WORLD);
-
 		if (current_rank == 0){
 			for (int i = 0; i <_width; i++){
 				for (int j = 0; j < _height; j++){
