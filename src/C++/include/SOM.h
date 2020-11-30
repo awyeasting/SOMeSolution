@@ -12,6 +12,16 @@
 #include <curand.h>
 #include "cublas_v2.h"
 
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
+
 void SqDists(double* m, int loop, int dim, double* output);
 void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *weights, double *D, double *m_sq, double *x_sq, int *BMUs, double *H, double *numer, double *denom, int width, int height, int num_examples, int dimensions, double initial_map_radius, double neighborhood_radius);
 double h(int j, int i, double initial_radius, double radius, int* BMUs, int height);
