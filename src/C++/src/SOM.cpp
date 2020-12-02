@@ -65,13 +65,13 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 	double temp;
 	int cols_count = 0;
 	while (ss >> temp && cols_count < cols) {
-		if (temp > featureMaxes[cols])
+		if (temp > featureMaxes[cols_count])
 		{
-			featureMaxes[cols] = temp;
+			featureMaxes[cols_count] = temp;
 		}
-		if (temp < featureMins[cols])
+		if (temp < featureMins[cols_count])
 		{
-			featureMins[cols] = temp;
+			featureMins[cols_count] = temp;
 		}
 		cols_count++;
 		line1.push_back(temp);
@@ -110,8 +110,11 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 		}
 		i++;
 		if (i == cols) {
-			if(flag)
+			if(flag){
 				in >> temp;
+				//std::cout << "Temp = " << temp << std::endl;
+			}
+				
 			lines.push_back(unpackedLine);
 			i = 0;
 			unpackedLine = NULL;
