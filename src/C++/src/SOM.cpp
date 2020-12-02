@@ -264,9 +264,11 @@ void SOM::train_data(std::string fileName, int fileSize, unsigned int current_ra
 	double* global_min=(double *)malloc(sizeof(double) * dimensions);
 	//Where we load in the file.
 	this->_dimensions = dimensions;
-
 	start = ((rowCount / num_procs) * current_rank) + 1;
 	read_count = rowCount / num_procs;
+	
+	auto start2 = std::chrono::high_resolution_clock::now();	
+
 	if (current_rank >= (num_procs - (rowCount %num_procs)))
 	{
 		shift = current_rank - (num_procs - (rowCount % num_procs));
@@ -341,8 +343,11 @@ void SOM::train_data(std::string fileName, int fileSize, unsigned int current_ra
 		// }
 	}
 
-	
-	
+	auto stop2 = std::chrono::high_resolution_clock::now();
+	auto duration2 = std::chrono::duration_cast<std::chrono::duration<double>>(stop2 - start2);
+	MPI_Barrier(MPI::COMM_WORLD);
+	std::cout << "Finished input work on Rank" << current_rank<< " in " << duration2.count() << "seconds" << std::endl;
+
 	//Rank 0 needs to do the initalization of the map.
 	if (current_rank == 0)
 	{
@@ -382,12 +387,17 @@ void SOM::train_data(std::string fileName, int fileSize, unsigned int current_ra
 	MPI_Barrier(MPI::COMM_WORLD);
 	//std::cout << "Printing Normalized Training Data" << std::endl;
 	//printDoubles(train_data, rowCount*_dimensions, rowCount);
+	double time_sec_fill = 0;
+	double time_one_train = 0;
+	double time_reduce_local = 0;
+	double time_reduce_all = 0;
 
-	MPI_Barrier(MPI::COMM_WORLD);
-	//Loop for argument passed number of times.
 	for(int epoch = 0; epoch < epochs; epoch++) {
 
+		MPI_Barrier(MPI::COMM_WORLD);
+
 		//Filling localMap in rank 0 to broadcast to all processes
+		auto start3 = std::chrono::high_resolution_clock::now();	
 		if (current_rank == 0){
 			for (int i = 0; i <_width; i++){
 				for (int j = 0; j < _height; j++){
@@ -397,30 +407,35 @@ void SOM::train_data(std::string fileName, int fileSize, unsigned int current_ra
 				}
 			}
 		}
-		
-		MPI_Barrier(MPI::COMM_WORLD);
+		//MPI_Barrier(MPI::COMM_WORLD);
 		MPI_Bcast(local_map, _width*_height*_dimensions, MPI::DOUBLE, 0, MPI::COMM_WORLD);
-		train_one_epoch(local_map, train_data, local_numerators, local_denominators, read_count, initial_map_radius, epoch, time_constant);	
+		auto stop3 = std::chrono::high_resolution_clock::now();
+		auto duration3 = std::chrono::duration_cast<std::chrono::duration<double>>(stop3 - start3);
+		time_sec_fill += duration3.count();
+		MPI_Barrier(MPI::COMM_WORLD);
 		
+		auto start4 = std::chrono::high_resolution_clock::now();
+		train_one_epoch(local_map, train_data, local_numerators, local_denominators, read_count, initial_map_radius, epoch, time_constant);	
+	
+		auto stop4 = std::chrono::high_resolution_clock::now();
+		auto duration4 = std::chrono::duration_cast<std::chrono::duration<double>>(stop4 - start4);
+		time_one_train += duration4.count();
 		MPI_Barrier(MPI::COMM_WORLD);
 
+		auto start5 = std::chrono::high_resolution_clock::now();
 		MPI_Reduce(local_numerators, global_numerators, _width *_height * _dimensions, MPI::DOUBLE, MPI::SUM, 0, MPI::COMM_WORLD);
 		MPI_Reduce(local_denominators, global_denominator, _width * _height, MPI::DOUBLE, MPI::SUM, 0, MPI::COMM_WORLD);
+		auto stop5 = std::chrono::high_resolution_clock::now();
+		auto duration5 = std::chrono::duration_cast<std::chrono::duration<double>>(stop5 - start5);
+		time_reduce_local += duration5.count();
+
 		MPI_Barrier(MPI::COMM_WORLD);
 		//std::cout << "printing local numerators" << std::endl;
 		//printDoubles(local_numerators, _width *_height *_dimensions, _width * _height);
 		//std::cout << "printing local denoms" << std::endl;
 		//printDoubles(local_denominators, _width*_height, _width * _height);
 
-		if(current_rank == 0)
-		{
-			//std::cout << "printing global numerators" << std::endl;
-			//printDoubles(global_numerators, _width *_height *_dimensions, _width * _height);
-			//std::cout << "printing global denoms" << std::endl;
-			//printDoubles(global_denominator, _width*_height, _width * _height);
-		}
-		MPI_Barrier(MPI::COMM_WORLD);
-
+		auto start6 = std::chrono::high_resolution_clock::now();
 		if (current_rank == 0)
 		{
 			// Update codebook
@@ -431,7 +446,16 @@ void SOM::train_data(std::string fileName, int fileSize, unsigned int current_ra
 				}
 			}
 		}
+		auto stop6 = std::chrono::high_resolution_clock::now();
+		auto duration6 = std::chrono::duration_cast<std::chrono::duration<double>>(stop6 - start6);
+		time_reduce_all += duration6.count();
 	}
+	std::cout << "current rank" << current_rank << " time_fill_map " << time_sec_fill << std::endl;
+	std::cout << "current rank" << current_rank << " time_one_epoch " << time_one_train << std::endl;
+	std::cout << "current rank" << current_rank << " time_reduce_nums_denoms " << time_reduce_local << std::endl;
+	std::cout << "current rank" << current_rank << " time_calc_new_map " << time_reduce_all << std::endl;
+
+
 	if(current_rank == 0)
 	{
 		free(global_denominator);

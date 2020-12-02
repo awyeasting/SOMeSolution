@@ -12,6 +12,7 @@
 #include <time.h>
 #include "mpi.h"
 #include <string.h>
+#include <chrono>
 
 class SOM
 {
