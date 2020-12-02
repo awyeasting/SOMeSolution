@@ -281,7 +281,7 @@ std::fstream& SOM::GotoLine(std::fstream& file, unsigned int num){
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
-void SOM::train_data(std::string fileName, int fileSize, unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed, unsigned int map_seed, bool flag)
+void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed, unsigned int map_seed, bool flag)
 {
 	double * train_data;
 	int start, shift, read_count;
