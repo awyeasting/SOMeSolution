@@ -47,7 +47,7 @@ double* SOM::generateRandomTrainingInputs(unsigned int examples, unsigned int di
 /*
 	Load a set of training data from a given filename
 */
-double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int& cols, int read_count, double* featureMaxes, double* featureMins) {
+double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int& cols, int read_count, double* featureMaxes, double* featureMins, bool flag) {
 	// Open file ****DO THIS BEFORE CALLING FUNCTION*****
 	
 	// std::ifstream in(trainDataFileName, std::ifstream::in);
@@ -63,8 +63,8 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 	std::stringstream ss(line);
 	std::vector<double> line1;
 	double temp;
-	cols = 0;
-	while (ss >> temp) {
+	int cols_count = 0;
+	while (ss >> temp && cols_count < cols) {
 		if (temp > featureMaxes[cols])
 		{
 			featureMaxes[cols] = temp;
@@ -73,9 +73,11 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 		{
 			featureMins[cols] = temp;
 		}
-		cols++;
+		cols_count++;
 		line1.push_back(temp);
 	}
+	std::cout << "Number cols: " << cols << std::endl;
+	std::cout << flag << std::endl;
 	std::vector<double*> lines;
 
 	// Store first line in dynamic array and put into the vector of rows
@@ -83,7 +85,9 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 	for (int j = 0; j < cols; j++) {
 		tempLine1[cols - j - 1] = line1.back();
 		line1.pop_back();
+		
 	}
+	std::cout << "After for loop" << std::endl;
 	lines.push_back(tempLine1);
 
 	// Read all numbers into cols dimensional arrays added to the rows list
@@ -106,6 +110,8 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 		}
 		i++;
 		if (i == cols) {
+			if(flag)
+				in >> temp;
 			lines.push_back(unpackedLine);
 			i = 0;
 			unpackedLine = NULL;
@@ -137,6 +143,7 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 
 	// Convert vector of arrays into 1d array of examples
 	rows = lines.size();
+	std::cout << "Rows: " << rows << " Columns: " << cols << std::endl;
 	double* res = new double[rows * cols];
 	for (i = 0; i < rows; i++) {
 		double* temp = lines.back();
@@ -147,15 +154,16 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 		lines.pop_back();
 		free(temp);
 	}
+	std::cout << "**DEBUG** After for loop read columns" << std::endl;
 
 	//print debug
-	for(int i = 0; i < rows; i++){
-		int rowMod = (rows-i-1)*cols;
-		for(int j = 0; j < cols; j++){
-			//std::cout << res[rowMod+j] << " ";
-		}
-		//std::cout << std::endl;
-	}
+	// for(int i = 0; i < rows; i++){
+	// 	int rowMod = (rows-i-1)*cols;
+	// 	for(int j = 0; j < cols; j++){
+	// 		//std::cout << res[rowMod+j] << " ";
+	// 	}
+	// 	//std::cout << std::endl;
+	// }
 
 	return res;
 }
@@ -184,13 +192,17 @@ void SOM::train_one_epoch(double* localMap, double* train_data, double* numerato
 	SqDists(localMap, _width * _height, _dimensions, m_sq);
 	
 	// Calc x_sq
-	#pragma omp parallel
+	#ifdef ENABLE_OPENMP
+	#pragma omp parallel for
+	#endif
 	SqDists(train_data, num_examples, _dimensions, x_sq);
 
 	
 
 	//Calculate D matrix
+	#ifdef ENABLE_OPENMP
 	#pragma omp parallel for
+	#endif
 	for (int j = 0; j < num_examples; j++) {
 		for (int i = 0; i < _width * _height; i++) {
 			// Calc x^Tm
@@ -204,6 +216,9 @@ void SOM::train_one_epoch(double* localMap, double* train_data, double* numerato
 	}
 	
 	// BMU index of each training instance
+	#ifdef ENABLE_OPENMP
+	#pragma omp parallel for
+	#endif
 	for (int j = 0; j < num_examples; j++) {
 		BMUs[j] = 0;
 		for (int i = 1; i < _width * _height; i++) {
@@ -214,13 +229,18 @@ void SOM::train_one_epoch(double* localMap, double* train_data, double* numerato
 	}
 	// Calc gaussian function 
 	// (num_examples x num nodes)
+	#ifdef ENABLE_OPENMP
 	#pragma omp parallel for
+	#endif
 	for (int j = 0; j < num_examples; j++) {
 		for (int i = 0; i < _width * _height; i++) {
 			H[j*_width*_height + i] = h(j, i, initial_map_radius, neighborhood_radius, BMUs);
 		}
 	}
 	// Left multiply H by a num_examples dimensional vector of ones
+	#ifdef ENABLE_OPENMP
+	#pragma omp parallel for
+	#endif
 	for (int i = 0; i < _width * _height; i++) {
 		denominators[i] = 0.0;
 		for (int j = 0; j < num_examples; j++) {
@@ -229,7 +249,9 @@ void SOM::train_one_epoch(double* localMap, double* train_data, double* numerato
 	}
 	
 	//Calculate numerators
+	#ifdef ENABLE_OPENMP
 	#pragma omp parallel for
+	#endif
 	for (int i = 0; i < _width * _height; i++) {
 		for (int d = 0; d < _dimensions; d++) {
 			numerators[i * _dimensions + d] = 0.0;
@@ -256,7 +278,7 @@ std::fstream& SOM::GotoLine(std::fstream& file, unsigned int num){
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
-void SOM::train_data(std::string fileName, int fileSize, unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed, unsigned int map_seed)
+void SOM::train_data(std::string fileName, int fileSize, unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed, unsigned int map_seed, bool flag)
 {
 	double * train_data;
 	int start, shift, read_count;
@@ -299,8 +321,8 @@ void SOM::train_data(std::string fileName, int fileSize, unsigned int current_ra
 
 		std::fstream& file = GotoLine(in, start);
 		//Need to do reading with localmaxes and localMins.
-		train_data = loadTrainingData(file, rowCount, dimensions, read_count, _featureMaxes, _featureMins);
-
+		train_data = loadTrainingData(file, rowCount, dimensions, read_count, _featureMaxes, _featureMins, flag);
+		std::cout << "After load trainging data" << std::endl;
 		MPI_Barrier(MPI::COMM_WORLD);
 		if (current_rank == 0)
 		{
@@ -439,7 +461,9 @@ void SOM::train_data(std::string fileName, int fileSize, unsigned int current_ra
 		if (current_rank == 0)
 		{
 			// Update codebook
+			#ifdef ENABLE_OPENMP
 			#pragma omp parallel for
+			#endif
 			for (int i = 0; i < _width * _height; i++) {
 				for (int d = 0; d < _dimensions; d++) {
 					this->_weights[i*_dimensions + d] = global_numerators[i*_dimensions + d]/global_denominator[i];

@@ -7,12 +7,12 @@
 #include "SOM.h"
 
 
-unsigned int countRowsAndCols(std::string fileName, unsigned int&rows, unsigned int&cols)
+void countRowsAndCols(std::string fileName, unsigned int&rows, unsigned int&cols, bool label)
 {
 	std::ifstream in(fileName, std::ifstream::in);
 	if (!in.is_open()) {
 		std::cout << "Invalid training data file '" << fileName << "'" << std::endl;
-		return NULL;
+		
 	}
 	std::string line;
 	std::getline(in, line);
@@ -22,11 +22,13 @@ unsigned int countRowsAndCols(std::string fileName, unsigned int&rows, unsigned 
 	while (ss >> temp) {
 		cols++;
 	}
+	if(label){
+		cols--;
+	}
 	rows= 1;
 	while (std::getline(in, line)) {
 		rows++;
 	}
-	return rows;
 }
 
 int main(int argc, char *argv[])
@@ -48,6 +50,7 @@ int main(int argc, char *argv[])
 	unsigned int* seedArray = new unsigned int[num_procs];
 	unsigned int map_seed = 0;
 	bool use_mpi = false;
+	bool column_label = false;
 	int lengthOf = 0;
 
 	if (rank == 0)
@@ -64,7 +67,8 @@ int main(int argc, char *argv[])
 				<< "\t(string) -o --out       Path of the output file of node weights" << std::endl
 				<< "\t(int)    -e --epochs    Number of epochs used in training" << std::endl
 				<< "\t(int)    -s --seed      Integer value to intialize seed for generating" << std::endl
-				<< "\t(string) --mpi   		  Is compiling with MPI" << std::endl;
+				<< "\t(string) --mpi   		  Is compiling with MPI" << std::endl
+				<< "\t         -l             Is there a label in the last column" <<std::endl;
 				return 0;
 			} else if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
 				std::cout << "somesolution v" << versionNumber << std::endl;
@@ -112,6 +116,10 @@ int main(int argc, char *argv[])
 			{
 				use_mpi = true;
 			}	
+			else if (strcmp(argv[i], "-l") == 0)
+			{
+				column_label = true;
+			}
 			else {
 				// Positional arguments
 				// width height trainingdatafile.txt
@@ -151,9 +159,9 @@ int main(int argc, char *argv[])
 		}
 		else
 		{
-			rows_count = countRowsAndCols((std::string)trainingFileName, n, d);
+			countRowsAndCols((std::string)trainingFileName, n, d, column_label);
 		}
-		if (rows_count == NULL) {
+		if (n == NULL) {
 			return 0;
 		}
 		
@@ -191,12 +199,13 @@ int main(int argc, char *argv[])
 	*/
 
 	MPI_Barrier(MPI::COMM_WORLD);
-	MPI_Bcast(&rows_count, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
+	MPI_Bcast(&n, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&d, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&epochs, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&width, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&height, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&map_seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
+	MPI_Bcast(&column_label, 1, MPI::BOOL, 0, MPI::COMM_WORLD);
 	
 	MPI_Bcast(trainingFileName, fileSize, MPI::CHAR, 0, MPI::COMM_WORLD);
 	MPI_Scatter(seedArray, 1, MPI::UNSIGNED, &seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
@@ -209,7 +218,7 @@ int main(int argc, char *argv[])
 	SOM newSom = SOM(width, height);
 	// Train SOM and time training
 	auto start = std::chrono::high_resolution_clock::now();
-	newSom.train_data((std::string)trainingFileName, fileSize, rank, num_procs, epochs, d, rows_count, seed, map_seed);
+	newSom.train_data((std::string)trainingFileName, fileSize, rank, num_procs, epochs, d, n, seed, map_seed, column_label);
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(stop - start);
 	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
