@@ -1,6 +1,22 @@
+/*
+ * This file is part of SOMeSolution.
+ *
+ * Developed for Pacific Northwest National Laboratory.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the BSD 3-Clause License as published by
+ * the Software Package Data Exchange.
+ */
+
 #include "SOM.h"
 
-// Kernel function to perform elementwise multiplication
+//----------------------------------------------------
+//	CUDA KERNEL FUNCTIONS
+//----------------------------------------------------
+
+/*
+	CUDA kernel function for performing elementwise multiplication on two matrices</summary>
+*/
 __global__
 void elementMul(double *A, double *B, double *C, int n) {
 	int i = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -8,6 +24,9 @@ void elementMul(double *A, double *B, double *C, int n) {
 		C[i] = A[i] * B[i];
 }
 
+/*
+	CUDA kernel function for filling a matrix with ones
+*/
 __global__
 void fillOnes(double *A, int n) {
 	int i = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -15,6 +34,9 @@ void fillOnes(double *A, int n) {
 		A[i] = 1.0f;
 }
 
+/*
+	CUDA kernel function calculating the BMUs of nodes as found by distances in the D matrix
+*/
 __global__
 void findBMUsGPU(double *D, int *BMUs, int xdn, int nnodes) {
 	int i = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -29,6 +51,9 @@ void findBMUsGPU(double *D, int *BMUs, int xdn, int nnodes) {
 	}
 }
 
+/*
+	CUDA kernel function for calculating the gaussian value as described in the paper by Liu et. al.
+*/
 __global__
 void calcGaussian(double *H, int xdn, int nnodes, double initial_map_radius, double neighborhood_radius, int *BMUs, int height) {
 	int row = (blockIdx.y * blockDim.y) + threadIdx.y;
@@ -46,6 +71,9 @@ void calcGaussian(double *H, int xdn, int nnodes, double initial_map_radius, dou
 	}
 }
 
+/*
+	CUDA kernel function for copying a matrix from row major order to column major order
+*/
 __global__
 void rowToColumnMajor(double *idata, double *odata, int nrows, int ncols, int n) {
   int i = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -53,19 +81,13 @@ void rowToColumnMajor(double *idata, double *odata, int nrows, int ncols, int n)
     odata[(i%ncols)*nrows + (i/ncols)] = idata[i];
 }
 
-double h(int j, int i, double initial_radius, double radius, int* BMUs, int height) {
-	int i_y = i % height;
-	int i_x = (i - i_y) / height;
-
-	// Get BMU coord
-	int j_y = BMUs[j] % height;
-	int j_x = (BMUs[j] - j_y) / height;
-
-	return initial_radius * exp(-(double)((j_x - i_x) * (j_x - i_x) + (j_y - i_y) * (j_y - i_y))/(radius * radius));
-}
+//----------------------------------------------------
+//	SOM non-member functions
+//----------------------------------------------------
 
 void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *weights, double *numer, double *denom, int map_size, int height, int num_examples, int dimensions, double initial_map_radius, double neighborhood_radius) {
 
+	// Set assigned gpu
 	gpuErrchk(cudaSetDevice(device));
 
 	// Find BMUs for every input instance
@@ -187,6 +209,10 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	gpuErrchk(cudaFree(H));
 }
 
+//----------------------------------------------------
+//	public SOM functions
+//----------------------------------------------------
+
 /* 
 	Construct untrained SOM with given lattice width and height
 */
@@ -200,7 +226,7 @@ SOM::SOM(unsigned int width, unsigned int height)
 	Construct SOM from a saved SOM width, height, and set of weights
 */
 SOM::SOM(std::istream &in) {
-	this->load_weights(in);
+	this->loadWeights(in);
 }
 
 /*
@@ -209,104 +235,32 @@ SOM::SOM(std::istream &in) {
 void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate)
 {
 	this->_dimensions = dimensions;
-	const int map_size = this->_width * this->_height;
-	// Initialize host numerators and denominators
-	double *numer = (double *)malloc(map_size * dimensions * sizeof(double));
-	double *denom = (double *)malloc(map_size * sizeof(double));
-	for (int i = 0; i < map_size; i++) {
-		denom[i] = 0.0;
-		for (int j = 0; j < dimensions; j++) {
-			numer[i*dimensions + j] = 0.0;
-		}
-	}
+	this->_mapSize = this->_width * this->_height;
+
+	cublasHandle_t* handles;
+	double neighborhood_radius, *numer, *denom, **d_train, **d_weights, **d_numer, **d_denom, **gnumer, **gdenom;
+	int NUM_GPUS, *GPU_EXAMPLES, *GPU_OFFSET;
 
 	// Establish multi gpu setup
-	int NUM_GPUS;
 	cudaGetDeviceCount(&NUM_GPUS);
 	omp_set_dynamic(0); // Disable dynamic teams
 	omp_set_num_threads(NUM_GPUS);
 
-	// Allocate memory associated with each GPU
-	cublasHandle_t* handles = (cublasHandle_t *)malloc(NUM_GPUS * sizeof(cublasHandle_t));
-	double **d_train = (double **)malloc(NUM_GPUS * sizeof(double *));
-	double **d_weights = (double **)malloc(NUM_GPUS * sizeof(double *));
-	double **d_numer = (double **)malloc(NUM_GPUS * sizeof(double *));
-	double **d_denom = (double **)malloc(NUM_GPUS * sizeof(double *));
-	double **gnumer = (double **)malloc(NUM_GPUS * sizeof(double *));
-	double **gdenom = (double **)malloc(NUM_GPUS * sizeof(double *));
-	int *GPU_EXAMPLES = (int *)malloc(NUM_GPUS * sizeof(int));
-	int *GPU_OFFSET = (int *)malloc(NUM_GPUS * sizeof(int));
-	GPU_OFFSET[0] = 0;
-	for (int gpu = 0; gpu < NUM_GPUS; gpu++) {
-		gpuErrchk(cudaSetDevice(gpu));
-		// Create cublas handles associated with each device
-		cublasCreate(&handles[gpu]);
-
-		// Set the number of examples allocated to each GPU simply by equal division
-		GPU_EXAMPLES[gpu] = num_examples/NUM_GPUS;
-		if (gpu < NUM_GPUS-1)
-			GPU_OFFSET[gpu+1] = GPU_OFFSET[gpu] + GPU_EXAMPLES[gpu];
-		// Allocate remainder examples to last gpu
-		else
-			GPU_EXAMPLES[gpu] += num_examples - (GPU_OFFSET[gpu] + GPU_EXAMPLES[gpu]);
-		
-		// Allocate space for current GPU's share of the examples
-		gpuErrchk(cudaMalloc(&d_train[gpu], GPU_EXAMPLES[gpu] * dimensions * sizeof(double)));
-		// Allocate space for current GPU's copy of the map
-		gpuErrchk(cudaMalloc(&d_weights[gpu], map_size * dimensions * sizeof(double)));
-		// Allocate space for current GPU's copy of numerators and denominators
-		gpuErrchk(cudaMalloc(&d_numer[gpu], map_size * dimensions * sizeof(double)));
-		gpuErrchk(cudaMalloc(&d_denom[gpu], map_size * sizeof(double)));
-		gnumer[gpu] = (double *)malloc(map_size * dimensions * sizeof(double));
-		gdenom[gpu] = (double *)malloc(map_size * sizeof(double));
-	}
-
-	// Normalize data (to be within 0 to 1)
+	// Allocate memory associated with training on each GPU
+	initNumDenom(numer, denom);
+	initGPUTrainMemory(NUM_GPUS, handles, d_train, d_weights, d_numer, d_denom, GPU_EXAMPLES, GPU_OFFSET, num_examples);
+	initGPUNumDenReducMem(NUM_GPUS, gnumer, gdenom);
 	normalizeData(trainData, num_examples);
 	// Split training data onto gpus
-	// then convert from row major ordering to the column major ordering of cuBLAS
-	double **tempd_train = (double **)malloc(NUM_GPUS * sizeof(double *));
-	int NUM_THREADS = 256;
-	int NUM_BLOCKS;
-	for (int gpu = 0; gpu < NUM_GPUS; gpu++) {
-		//std::cout << "Preparing train data for gpu " << gpu << std::endl;
-		cudaSetDevice(gpu);
-		NUM_BLOCKS = (int)ceil((float)(GPU_EXAMPLES[gpu]*dimensions)/NUM_THREADS);
-		gpuErrchk(cudaMalloc(&tempd_train[gpu], GPU_EXAMPLES[gpu] * dimensions * sizeof(double)));
-		gpuErrchk(cudaMemcpy(tempd_train[gpu], &trainData[GPU_OFFSET[gpu]], GPU_EXAMPLES[gpu] * dimensions * sizeof(double), cudaMemcpyHostToDevice));
-		rowToColumnMajor<<<NUM_BLOCKS, NUM_THREADS>>>(tempd_train[gpu], d_train[gpu], GPU_EXAMPLES[gpu], dimensions, GPU_EXAMPLES[gpu] * dimensions);
-		gpuErrchk(cudaDeviceSynchronize());
-	}
+	initGPUTrainData(NUM_GPUS, trainData, d_train, GPU_EXAMPLES, GPU_OFFSET);
+	if (GPU_BASED_CODEBOOK_INIT)
+		initCodebookOnGPU(d_weights);
+	else
+		initCodebook();
+	initGPUCodebooks(d_weights);
 
-	// Randomly initialize codebook	on first gpu
-	const int CODEBOOK_INIT_DEVICE = 0;
-	gpuErrchk(cudaSetDevice(CODEBOOK_INIT_DEVICE));
-	curandGenerator_t gen;
-	curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
-	cudaDeviceSynchronize();
-	// TODO: curandSetPseudoRandomGeneratorSeed(gen, );
-	curandGenerateUniformDouble(gen, d_weights[CODEBOOK_INIT_DEVICE], map_size * dimensions);
-	this->_weights = (double *)malloc(map_size * dimensions * sizeof(double));
-	// Copy map from gpu to cpu
-	gpuErrchk(cudaMemcpy(this->_weights, d_weights[CODEBOOK_INIT_DEVICE], map_size * dimensions * sizeof(double), cudaMemcpyDeviceToHost));
-	// Copy map from the cpu to gpus
-	for (int gpu = 0; gpu < NUM_GPUS; gpu++) {
-		gpuErrchk(cudaSetDevice(gpu));
-		gpuErrchk(cudaMemcpy(d_weights[gpu], this->_weights, map_size * dimensions * sizeof(double), cudaMemcpyHostToDevice));
-	}
-
-	// Calc initial map radius
 	double initial_map_radius = _width < _height ? ((double)_width) / 2.0 : ((double)_height) / 2.0;
 	double time_constant = double(epochs) / log(initial_map_radius);
-
-	// Synchronize devices and remove any temporary preprocessing memory allocated
-	for (int gpu = 0; gpu < NUM_GPUS; gpu++) {
-		gpuErrchk(cudaSetDevice(gpu));
-		gpuErrchk(cudaDeviceSynchronize());
-		gpuErrchk(cudaFree(tempd_train[gpu]));
-	}
-	free(tempd_train);
-	double neighborhood_radius;
 	
 	for(int epoch = 0; epoch < epochs; epoch++) {
 		// Calculate current neighborhood radius
@@ -317,9 +271,9 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 			int gpu = omp_get_thread_num();
 			gpuErrchk(cudaSetDevice(gpu));
 			gpuErrchk(cudaDeviceSynchronize());
-			trainOneEpoch(handles[gpu], gpu, d_train[gpu], d_weights[gpu], d_numer[gpu], d_denom[gpu], map_size, this->_height, GPU_EXAMPLES[gpu], dimensions, initial_map_radius, neighborhood_radius);
-			gpuErrchk(cudaMemcpy(gnumer[gpu],d_numer[gpu], map_size * dimensions * sizeof(double), cudaMemcpyDeviceToHost));
-			gpuErrchk(cudaMemcpy(gdenom[gpu],d_denom[gpu], map_size * sizeof(double), cudaMemcpyDeviceToHost));
+			trainOneEpoch(handles[gpu], gpu, d_train[gpu], d_weights[gpu], d_numer[gpu], d_denom[gpu], this->_mapSize, this->_height, GPU_EXAMPLES[gpu], dimensions, initial_map_radius, neighborhood_radius);
+			gpuErrchk(cudaMemcpy(gnumer[gpu],d_numer[gpu], this->_mapSize * dimensions * sizeof(double), cudaMemcpyDeviceToHost));
+			gpuErrchk(cudaMemcpy(gdenom[gpu],d_denom[gpu], this->_mapSize * sizeof(double), cudaMemcpyDeviceToHost));
 		}
 
 		// Update codebook/map
@@ -327,25 +281,25 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		// TODO: Implement more complex reduction
 		for(int gpu = 0; gpu < NUM_GPUS; gpu++) {
 			if (gpu == 0) {
-				for (int i = 0; i < map_size; i++) {
+				for (int i = 0; i < this->_mapSize; i++) {
 					denom[i] = gdenom[gpu][i];
 					for (int d = 0; d < dimensions; d++) {
-						numer[i + d*map_size] = gnumer[gpu][i + d*map_size];
+						numer[i + d*this->_mapSize] = gnumer[gpu][i + d*this->_mapSize];
 					}
 				}
 			} else {
-				for (int i = 0; i < map_size; i++) {
+				for (int i = 0; i < this->_mapSize; i++) {
 					denom[i] += gdenom[gpu][i];
 					for (int d = 0; d < dimensions; d++) {
-						numer[i + d*map_size] += gnumer[gpu][i + d*map_size];
+						numer[i + d*this->_mapSize] += gnumer[gpu][i + d*this->_mapSize];
 					}
 				}
 			}
 		}
 		// Recalculate weights with new numerators and denominators
-		for (int i = 0; i < map_size; i++) {
+		for (int i = 0; i < this->_mapSize; i++) {
 			for (int d = 0; d < dimensions; d++) {
-				this->_weights[i*dimensions + d] = numer[i + d*map_size] / denom[i];
+				this->_weights[i*dimensions + d] = numer[i + d*this->_mapSize] / denom[i];
 			}
 		}
 
@@ -355,7 +309,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 			{
 				int gpu = omp_get_thread_num();
 				gpuErrchk(cudaSetDevice(gpu));
-				gpuErrchk(cudaMemcpy(d_weights[gpu], this->_weights, map_size * dimensions * sizeof(double), cudaMemcpyHostToDevice));
+				gpuErrchk(cudaMemcpy(d_weights[gpu], this->_weights, this->_mapSize * dimensions * sizeof(double), cudaMemcpyHostToDevice));
 			}
 		}
 	}
@@ -405,10 +359,14 @@ void SOM::save_weights(std::ostream &out)
 	}
 }
 
+//----------------------------------------------------
+//	private SOM functions
+//----------------------------------------------------
+
 /*
 	Load a trained SOM that was saved using the same algorithm as save_weights from an input stream
 */
-void SOM::load_weights(std::istream &in)
+void SOM::loadWeights(std::istream &in)
 {
 	// Load SOM dimensions first
 	in >> this->_width >> this->_height;
@@ -471,34 +429,123 @@ void SOM::normalizeData(double *trainData, int num_examples)
 }
 
 /*
-	Update a node's weights to better match a given example
+	Calculate the index of a weight at node (x,y), dimension = d in the weights array
 */
-void SOM::updateNodeWeights(int x, int y, double* example, double learning_rate, double influence) {
-	for (int d = 0; d < this->_dimensions; d++)
-	{
-		this->_weights[calcIndex(x,y,d)] += influence * learning_rate * (example[d] - this->_weights[calcIndex(x,y,d)]);
-	}
-}
-
-/*
-	Generate a vector of size numFeatures
-*/
-double SOM::randWeight()
-{
-	return (double)rand() / (RAND_MAX);
-}
-
 int SOM::calcIndex(int x, int y, int d) {
 	return (x*_height + y)*_dimensions + d;
 }
 
-/*
-	Calculates the euclidean distance between two vectors
-*/
-double SOM::EucDist(double* v1, double* v2) {
-	double total = 0.0;
-	for (int i = 0; i < this->_dimensions; i++) {
-		total += (v1[i] - v2[i])*(v1[i] - v2[i]);
+void SOM::initMultiGPUSetup(int &ngpus) {
+	
+}
+
+void SOM::initNumDenom(double *&numer, double *&denom) {
+	numer = (double *)malloc(this->_mapSize * this->_dimensions * sizeof(double));
+	denom = (double *)malloc(this->_mapSize * sizeof(double));
+	for (int i = 0; i < this->_mapSize; i++) {
+		denom[i] = 0.0;
+		for (int j = 0; j < this->_dimensions; j++) {
+			numer[i*this->_dimensions + j] = 0.0;
+		}
 	}
-	return sqrt(total);
+}
+
+void SOM::initGPUTrainData(const int ngpus, double *trainData, double **d_train, int *GPU_EXAMPLES, int *GPU_OFFSET) {
+	#pragma omp parallel
+	{
+		int NUM_BLOCKS;
+		int NUM_THREADS = 256;
+		int gpu = omp_get_thread_num();
+
+		NUM_BLOCKS = (int)ceil((float)(GPU_EXAMPLES[gpu] * this->_dimensions)/NUM_THREADS);
+		double *temp_d_train;
+
+		gpuErrchk(cudaSetDevice(gpu));
+		gpuErrchk(cudaMalloc(&temp_d_train, GPU_EXAMPLES[gpu] * this->_dimensions * sizeof(double)));
+		gpuErrchk(cudaMemcpy(temp_d_train, &trainData[GPU_OFFSET[gpu]], GPU_EXAMPLES[gpu] * this->_dimensions * sizeof(double), cudaMemcpyHostToDevice));
+		// Convert data from row major order to 
+		rowToColumnMajor<<<NUM_BLOCKS, NUM_THREADS>>>(temp_d_train, d_train[gpu], GPU_EXAMPLES[gpu], this->_dimensions, GPU_EXAMPLES[gpu] * this->_dimensions);
+		gpuErrchk(cudaDeviceSynchronize());
+		gpuErrchk(cudaFree(temp_d_train));
+	}
+}
+
+void SOM::initGPUTrainMemory(const int ngpus, cublasHandle_t *&handles, double **&d_train, double **&d_weights, double **&d_numer, double **&d_denom, int *&GPU_EXAMPLES, int *&GPU_OFFSET, int num_examples) {
+	handles = (cublasHandle_t *)malloc(ngpus * sizeof(cublasHandle_t));
+	d_train = (double **)malloc(ngpus * sizeof(double *));
+	d_weights = (double **)malloc(ngpus * sizeof(double *));
+	d_numer = (double **)malloc(ngpus * sizeof(double *));
+	d_denom = (double **)malloc(ngpus * sizeof(double *));
+	GPU_EXAMPLES = (int *)malloc(ngpus * sizeof(int));
+	GPU_OFFSET = (int *)malloc(ngpus * sizeof(int));
+	GPU_OFFSET[0] = 0;
+
+	for (int gpu = 0; gpu < ngpus; gpu++) {
+		gpuErrchk(cudaSetDevice(gpu));
+		// Create cublas handles associated with each device
+		cublasCreate(&handles[gpu]);
+
+		// Set the number of examples allocated to each GPU simply by equal division
+		GPU_EXAMPLES[gpu] = num_examples/ngpus;
+		if (gpu < ngpus-1)
+			GPU_OFFSET[gpu+1] = GPU_OFFSET[gpu] + GPU_EXAMPLES[gpu];
+		// Allocate remainder examples to last gpu
+		else
+			GPU_EXAMPLES[gpu] += num_examples - (GPU_OFFSET[gpu] + GPU_EXAMPLES[gpu]);
+		
+		// Allocate space for current GPU's share of the examples
+		gpuErrchk(cudaMalloc(&d_train[gpu], GPU_EXAMPLES[gpu] * this->_dimensions * sizeof(double)));
+		// Allocate space for current GPU's copy of the map
+		gpuErrchk(cudaMalloc(&d_weights[gpu], this->_mapSize * this->_dimensions * sizeof(double)));
+		// Allocate space for current GPU's copy of numerators and denominators
+		gpuErrchk(cudaMalloc(&d_numer[gpu], this->_mapSize * this->_dimensions * sizeof(double)));
+		gpuErrchk(cudaMalloc(&d_denom[gpu], this->_mapSize * sizeof(double)));
+	}
+}
+
+void SOM::initGPUNumDenReducMem(const int ngpus, double **&gnumer, double **&gdenom) {
+	gnumer = (double **)malloc(ngpus * sizeof(double *));
+	gdenom = (double **)malloc(ngpus * sizeof(double *));
+	for (int gpu = 0; gpu < ngpus; gpu++) {
+		gnumer[gpu] = (double *)malloc(this->_mapSize * this->_dimensions * sizeof(double));
+		gdenom[gpu] = (double *)malloc(this->_mapSize * sizeof(double));
+	}
+}
+
+void SOM::initCodebook() {
+	this->_weights = (double *)malloc(this->_mapSize * this->_dimensions * sizeof(double));
+	for (int i = 0; i < this->_mapSize; i++) {
+		for (int d = 0; d < this->_dimensions; d++) {
+			this->_weights[i * this->_dimensions + d] = this->randWeight();
+		}
+	}
+}
+
+void SOM::initCodebookOnGPU(double **d_weights) {
+	const int CODEBOOK_INIT_DEVICE = 0;
+	gpuErrchk(cudaSetDevice(CODEBOOK_INIT_DEVICE));
+	curandGenerator_t gen;
+	curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
+	cudaDeviceSynchronize();
+	// TODO: curandSetPseudoRandomGeneratorSeed(gen, );
+	curandGenerateUniformDouble(gen, d_weights[CODEBOOK_INIT_DEVICE], this->_mapSize * this->_dimensions);
+	
+	// Copy map from gpu to cpu
+	this->_weights = (double *)malloc(this->_mapSize * this->_dimensions * sizeof(double));
+	gpuErrchk(cudaMemcpy(this->_weights, d_weights[CODEBOOK_INIT_DEVICE], this->_mapSize * this->_dimensions * sizeof(double), cudaMemcpyDeviceToHost));
+}
+
+void SOM::initGPUCodebooks(double **d_weights) {
+	#pragma omp parallel
+	{
+		int gpu = omp_get_thread_num();
+
+		gpuErrchk(cudaSetDevice(gpu));
+		gpuErrchk(cudaMemcpy(d_weights[gpu], this->_weights, this->_mapSize * this->_dimensions * sizeof(double), cudaMemcpyHostToDevice));
+	}
+}
+
+double SOM::randWeight()
+{
+	return (double)rand() / (RAND_MAX);
 }

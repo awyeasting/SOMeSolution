@@ -1,3 +1,13 @@
+/*
+ * This file is part of SOMeSolution.
+ *
+ * Developed for Pacific Northwest National Laboratory.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the BSD 3-Clause License as published by
+ * the Software Package Data Exchange.
+ */
+
 #ifndef SOM_H
 #define SOM_H
 
@@ -22,9 +32,9 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
    }
 }
 
-void SqDists(double* m, int loop, int dim, double* output);
+#define GPU_BASED_CODEBOOK_INIT true
+
 void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *weights, double *D, double *m_sq, double *x_sq, int *BMUs, double *H, double *numer, double *denom, int width, int height, int num_examples, int dimensions, double initial_map_radius, double neighborhood_radius);
-double h(int j, int i, double initial_radius, double radius, int* BMUs, int height);
 
 class SOM
 {
@@ -33,24 +43,32 @@ public:
 	SOM(std::istream &in);
 
 	void train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate);
-	static double randWeight();
 	void save_weights(std::ostream &out);
 
 private:
 
 	unsigned int _width;
 	unsigned int _height;
+	unsigned int _mapSize;
 	unsigned int _dimensions;
 	double* _weights;
 	double* _featureMaxes;
 	double* _featureMins;
 
-	void load_weights(std::istream &in);
-
+	void loadWeights(std::istream &in);
 	void normalizeData(double *trainData, int num_exampless);
-	void updateNodeWeights(int x, int y, double* example, double learning_rate, double influence);
 	int calcIndex(int x, int y, int d);
-	double EucDist(double* v1, double* v2);
+
+	void initMultiGPUSetup(int &ngpus);
+	void initNumDenom(double *&numer, double *&denom);
+	void initGPUTrainData(const int ngpus, double *trainData, double **d_train, int *GPU_EXAMPLES, int *GPU_OFFSET);
+	void initGPUTrainMemory(const int ngpus, cublasHandle_t *&handles, double **&d_train, double **&d_weights, double **&d_numer, double **&d_denom, int *&GPU_EXAMPLES, int *&GPU_OFFSET, int num_examples);
+	void initGPUNumDenReducMem(const int ngpus, double **&gnumer, double **&gdenom);
+	void initCodebook();
+	void initCodebookOnGPU(double **d_weights);
+	void initGPUCodebooks(double **d_weights);
+
+	static double randWeight();
 };
 
 #endif

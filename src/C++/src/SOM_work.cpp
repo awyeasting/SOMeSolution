@@ -1,3 +1,13 @@
+/*
+ * This file is part of SOMeSolution.
+ *
+ * Developed for Pacific Northwest National Laboratory.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the BSD 3-Clause License as published by
+ * the Software Package Data Exchange.
+ */
+
 #include <chrono>
 #include <iostream>
 #include <fstream>
@@ -6,10 +16,14 @@
 #include <cstring>
 #include "SOM.h"
 
+double randWeight()
+{
+	return (double)rand() / (RAND_MAX);
+}
+
 /*
 	Generates a random set of training data if there is no input file given
 */
-
 double *generateRandomTrainingInputs(unsigned int &examples, unsigned int &dimensions, int seedValue)
 {
 	srand(seedValue);
@@ -19,7 +33,7 @@ double *generateRandomTrainingInputs(unsigned int &examples, unsigned int &dimen
 		int rowMod = (examples - i - 1)*dimensions;
 		for (int j = 0; j < dimensions; j++)
 		{
-			double weight = SOM::randWeight();
+			double weight = randWeight();
 			returnData[rowMod+j] = weight;
 		}
 	}
