@@ -76,9 +76,9 @@ void calcGaussian(double *H, int xdn, int nnodes, double initial_map_radius, dou
 */
 __global__
 void rowToColumnMajor(double *idata, double *odata, int nrows, int ncols, int n) {
-  int i = (blockIdx.x * blockDim.x) + threadIdx.x;
-  if (i < n)
-    odata[(i%ncols)*nrows + (i/ncols)] = idata[i];
+	int i = (blockIdx.x * blockDim.x) + threadIdx.x;
+	if (i < n)
+		odata[(i%ncols)*nrows + (i/ncols)] = idata[i];
 }
 
 //----------------------------------------------------
@@ -218,6 +218,9 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 */
 SOM::SOM(unsigned int width, unsigned int height)
 {
+	this->_rank = MPI::COMM_WORLD.Get_rank();
+	this->_numProcs = MPI::COMM_WORLD.Get_size();
+
 	this->_width = width;
 	this->_height = height;
 }
@@ -226,14 +229,191 @@ SOM::SOM(unsigned int width, unsigned int height)
 	Construct SOM from a saved SOM width, height, and set of weights
 */
 SOM::SOM(std::istream &in) {
+	this->_rank = MPI::COMM_WORLD.Get_rank();
+	this->_numProcs = MPI::COMM_WORLD.Get_size();
+
 	this->loadWeights(in);
+}
+
+/*
+	Generates a random set of training data if there is no input file given
+*/
+void SOM::gen_train_data(unsigned int num_examples, unsigned int dimensions, unsigned int seedValue)
+{
+	if (_trainData != NULL) {
+		std::cout << "WARNING: train"
+	}
+	this->_dimensions = dimensions;
+	// TODO: Switch to compute based examples distribution
+	this->_numExamples = num_examples / this->_numProcs;
+	this->_trainData = new double [this->_numExamples * this->_dimensions];
+	srand(seedValue + this->_rank);
+	for (int i = 0; i < this->_numExamples; i++)
+	{
+		int rowMod = (this->_numExamples - i - 1) * this->_dimensions;
+		for (int d = 0; d < this->_dimensions; d++)
+		{
+			double weight = SOM::randWeight();
+			returnData[rowMod + d] = weight;
+		}
+	}
+}
+
+/*
+	Load a set of training data from a given filename
+
+	Precondition: File is already open
+*/
+bool SOM::load_train_data(std::string fileName, bool hasLabelRow, bool hasLabelColumn) {
+	unsigned int cols = 0, rows = 0;
+	bool okOpen = true;
+	if (this->_rank == 0) {
+		// Open file for counting number of rows and columns
+		std::ifstream infile(fileName, std::ifstream::in);
+		if (!infile.is_open()) {
+			okOpen = false;
+			std::cout << "Invalid training data file '" << fileName << "'" << std::endl;
+		} else {
+			// Read in first row of data into line
+			std::string line;
+			if (hasLabelRow) {
+				std::getline(infile, line);
+				rows++;
+			}
+			std::getline(infile, line);
+			rows++;
+
+			// Count number of values in the first row to determine num columns
+			// TODO: make this work with non number labels
+			std::stringstream ss(line);
+			double temp;
+			while (ss >> temp) {
+				cols++;
+			}
+			while(std::getline(infile, line)) {
+				// Ignore empty lines to be more forgiving of minor formatting mistakes
+				if (line.compare("") != 0)
+					rows++;
+			}
+		}
+		infile.close();
+	}
+	// Check there was no problem with the file
+	MPI_Bcast(&okOpen, 1, MPI::BOOL, 0, MPI::COMM_WORLD);
+	if (!okOpen) {
+		return false;
+	}
+
+	// Broadcast rows and columns
+	MPI_Bcast(&rows, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
+	MPI_Bcast(&cols, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
+
+	this->_numExamples = rows - ((unsigned int)hasLabelRow);
+	this->_dimensions = cols - ((unsigned int)hasLabelColumn);
+	
+	// Initialize feature maximums and minimums
+	this->_featureMaxes = (double *)malloc(sizeof(double) * this->_dimensions);
+	this->_featureMins = (double*)malloc(sizeof(double) * this->_dimensions);
+	for(int i =0; i < this->_dimensions; i++){
+		_featureMaxes[i] = numeric_limits<double>::min();
+		_featureMins[i] = numeric_limits<double>::max();
+	}
+
+	// Calculate starting position
+	int read_count = this->_numExamples / this->_numProcs;
+	int startRow = ((this->_numExamples / this->_numProcs) * this->_rank);
+	// Adjust for remainder of examples
+	if (this->_rank == this->_numProcs - 1) {
+		read_count += (this->_numExamples % this->_numProcs);
+	}
+	this->_numExamples = read_count;
+
+	// Prepare for reading in assigned chunk
+	bool readOk = true;
+	std::ifstream infile(fileName, std::ifstream::in); // Assume because it opened for rank 0 it will open for all
+	std::fstream& procfile = GotoLine(infile, startRow);
+	this->_trainData = (double *)malloc(this->_num_examples * this->_dimensions * sizeof(double));
+
+	// Read in assigned portion
+	int procSectionLineNum = 0;
+	std::string line;
+	while(procSectionLineNum < read_count && std::getline(procfile, line)) {
+		if (line.compare("") != 0) {
+			std::stringstream ss(procfile);
+			double temp;
+			int cols_count = 0;
+			// Read line into train data
+			while (ss >> temp && cols_count < this->_dimensions) {
+				this->_trainData[procSectionLineNum * this->_dimensions + cols_count] = temp;
+				if (temp > featureMaxes[cols_count]) {
+					featureMaxes[cols_count] = temp;
+				}
+				if (temp < featureMins[cols_count]) {
+					featureMins[cols_count] = temp;
+				}
+				cols_count++;
+			}
+			// If the line finished reading early then the data is not of a consistent dimension
+			if (cols_count != this->_dimensions - 1) {
+				readOk = false;
+				break;
+			}
+			procSectionLineNum++;
+		}
+	}
+	// If it didn't read enough lines then the data is not properly formatted
+	if (procSectionLineNum != read_count - 1) {
+		readOk = false;
+		break;
+	}
+
+	// Check that all the threads read their data properly
+	bool allReadOk;
+	MPI_Barrier(MPI::COMM_WORLD);
+	MPI_Allreduce(&readOk, &allReadOk, 1, MPI::BOOL, MPI::LAND, MPI::COMM_WORLD);
+	// If any process failed to read the process report it and discharge any allocated memory
+	if (!allReadOk) {
+		destroy_train_data();
+		std::cout << "Error reading input file: Unable to read input file, check to make sure the input is properly formatted" << std::endl;
+		return false;
+	}
+
+	// Find the true feature maxes and true feature mins
+	double *globalMaxes = (double *)malloc(sizeof(double) * this->_dimensions);
+	double *globalMins = (double*)malloc(sizeof(double) * this->_dimensions);
+	MPI_Allreduce(this->_featureMaxes, globalMaxes, this->_dimensions, MPI::DOUBLE, MPI::MAX, MPI::COMM_WORLD);
+	MPI_Allreduce(this->_featureMins, globalMins, this->_dimensions, MPI::DOUBLE, MPI::MIN, MPI::COMM_WORLD);
+		
+	// Free pre reduction maxes and mins
+	free(this->_featureMaxes);
+	free(this->_featureMins);
+	this->_featureMaxes = globalMaxes;
+	this->_featureMins = globalMins;
+
+	return true;
+}
+
+void SOM::destroy_train_data() {
+	free(this->_trainData);
+	free(this->_featureMaxes);
+	free(this->_featureMins);
+
+	this->_trainData = NULL;
+	this->_featureMaxes = NULL;
+	this->_featureMins = NULL;
 }
 
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
-void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate)
+void SOM::train_data(unsigned int epochs, double initial_learning_rate, unsigned int map_seed)
 {
+	// Check that the training data has been loaded in
+	if (this->_trainData == NULL) {
+		std::cout << "Train data not yet initialized in SOM" << std::endl;
+		return;
+	}
+
 	this->_dimensions = dimensions;
 	this->_mapSize = this->_width * this->_height;
 
@@ -241,28 +421,50 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	double neighborhood_radius, *numer, *denom, **d_train, **d_weights, **d_numer, **d_denom, **gnumer, **gdenom;
 	int NUM_GPUS, *GPU_EXAMPLES, *GPU_OFFSET;
 
-	// Establish multi gpu setup
+	// Establish multi gpu setup on current node
+	// TODO: Add num gpus option
 	cudaGetDeviceCount(&NUM_GPUS);
 	omp_set_dynamic(0); // Disable dynamic teams
 	omp_set_num_threads(NUM_GPUS);
 
-	// Allocate memory associated with training on each GPU
+	// Allocate memory associated with training on each GPU on each node
 	initNumDenom(numer, denom);
 	initGPUTrainMemory(NUM_GPUS, handles, d_train, d_weights, d_numer, d_denom, GPU_EXAMPLES, GPU_OFFSET, num_examples);
 	initGPUNumDenReducMem(NUM_GPUS, gnumer, gdenom);
 	normalizeData(trainData, num_examples);
-	// Split training data onto gpus
+	// Split training data onto gpus on each node
 	initGPUTrainData(NUM_GPUS, trainData, d_train, GPU_EXAMPLES, GPU_OFFSET);
-	if (GPU_BASED_CODEBOOK_INIT)
-		initCodebookOnGPU(d_weights);
-	else
-		initCodebook();
+	
+	// TODO: verify that global_numer and denom only need to be allocated on rank 0
+	double* global_numer;
+	double* global_denom;
+	// Init codebook on first node
+	if (this->_rank == 0) {
+		srand(map_seed);
+		if (GPU_BASED_CODEBOOK_INIT)
+			initCodebookOnGPU(d_weights);
+		else
+			initCodebook();
+
+		// Init global numerators and denominators for reduction to node 0
+		global_numer = (double*)malloc(_width * _height * _dimensions*sizeof(double));
+		global_denom = (double *)malloc(_width * _height * sizeof(double));
+	}
 	initGPUCodebooks(d_weights);
 
 	double initial_map_radius = _width < _height ? ((double)_width) / 2.0 : ((double)_height) / 2.0;
 	double time_constant = double(epochs) / log(initial_map_radius);
 	
 	for(int epoch = 0; epoch < epochs; epoch++) {
+		// Wait for all other nodes to start the epoch
+		MPI_Barrier(MPI::COMM_WORLD);
+
+		// Send out the map on proc 0
+		MPI_Bcast(this->_weights, this->_width * this->_height * this->_dimensions, MPI::DOUBLE, 0, MPI::COMM_WORLD);
+
+		// Update gpu copies of the map
+		setGPUCodebooks(d_weights);
+
 		// Calculate current neighborhood radius
 		neighborhood_radius = initial_map_radius * exp(-((double)(epoch))/time_constant);
 		// Train a single epoch on all gpus
@@ -276,8 +478,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 			gpuErrchk(cudaMemcpy(gdenom[gpu],d_denom[gpu], this->_mapSize * sizeof(double), cudaMemcpyDeviceToHost));
 		}
 
-		// Update codebook/map
-		// Reduce numerators and denominators
+		// Reduce numerators and denominators across gpus on proc
 		// TODO: Implement more complex reduction
 		for(int gpu = 0; gpu < NUM_GPUS; gpu++) {
 			if (gpu == 0) {
@@ -296,20 +497,18 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 				}
 			}
 		}
-		// Recalculate weights with new numerators and denominators
-		for (int i = 0; i < this->_mapSize; i++) {
-			for (int d = 0; d < dimensions; d++) {
-				this->_weights[i*dimensions + d] = numer[i + d*this->_mapSize] / denom[i];
-			}
-		}
 
-		// If not the last epoch update gpu copies of codebook/map
-		if (epoch != epochs - 1) { 
-			#pragma omp parallel
-			{
-				int gpu = omp_get_thread_num();
-				gpuErrchk(cudaSetDevice(gpu));
-				gpuErrchk(cudaMemcpy(d_weights[gpu], this->_weights, this->_mapSize * dimensions * sizeof(double), cudaMemcpyHostToDevice));
+		// Reduce numerators and denominators across all procs
+		MPI_Reduce(numer, global_numer, this->_mapSize * this->_dimensions, MPI::DOUBLE, MPI::SUM, 0, MPI::COMM_WORLD);
+		MPI_Reduce(numer, global_numer, this->_mapSize, MPI::DOUBLE, MPI::SUM, 0, MPI::COMM_WORLD);
+		
+		// Update codebook/map
+		if (this->_rank == 0) {
+			// Recalculate weights with new numerators and denominators
+			for (int i = 0; i < this->_mapSize; i++) {
+				for (int d = 0; d < dimensions; d++) {
+					this->_weights[i*dimensions + d] = numer[i + d*this->_mapSize] / denom[i];
+				}
 			}
 		}
 	}
@@ -336,6 +535,8 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	free(gdenom);
 	free(numer);
 	free(denom);
+	free(global_numer);
+	free(global_denom);
 }
 
 /*
@@ -356,6 +557,29 @@ void SOM::save_weights(std::ostream &out)
 			}
 			out << std::endl;
 		}
+	}
+}
+
+std::fstream& SOM::GotoLine(std::fstream& file, unsigned int num){
+    file.seekg(std::ios::beg);
+    for(int i=0; i < num - 1; ++i){
+        file.ignore(std::numeric_limits<std::streamsize>::max(),'\n');
+    }
+    return file;
+}
+
+void SOM::printDoubles(double *doubleList, unsigned int numDoubles, unsigned int numLines)
+{
+	unsigned int numPerLine = numDoubles/numLines;
+	unsigned int counter = 0;
+	while(counter < numDoubles)
+	{
+		for (int j = 0; j< numPerLine; j++)
+		{
+			std::cout << doubleList[counter] << " ";
+			counter++;
+		}
+		std::cout << std::endl;
 	}
 }
 
@@ -535,7 +759,7 @@ void SOM::initCodebookOnGPU(double **d_weights) {
 	gpuErrchk(cudaMemcpy(this->_weights, d_weights[CODEBOOK_INIT_DEVICE], this->_mapSize * this->_dimensions * sizeof(double), cudaMemcpyDeviceToHost));
 }
 
-void SOM::initGPUCodebooks(double **d_weights) {
+void SOM::setGPUCodebooks(double **d_weights) {
 	#pragma omp parallel
 	{
 		int gpu = omp_get_thread_num();

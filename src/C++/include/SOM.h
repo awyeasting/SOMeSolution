@@ -11,16 +11,21 @@
 #ifndef SOM_H
 #define SOM_H
 
-#include <limits>
-#include <iostream>
-#include <sstream>
-#include <vector>
-#include <math.h>
-#include <time.h>
-#include <omp.h>
-
+#include <chrono>
 #include <curand.h>
+#include <fstream>
+#include <iostream>
+#include <limits>
+#include <math.h>
+#include <omp.h>
+#include <sstream>
+#include <string>
+#include <string.h>
+#include <time.h>
+#include <vector>
+
 #include "cublas_v2.h"
+#include "mpi.h"
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
@@ -42,21 +47,34 @@ public:
 	SOM(unsigned int width, unsigned int height);
 	SOM(std::istream &in);
 
-	void train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate);
+	void gen_train_data(unsigned int examples, unsigned int dimensions, unsigned int seedValue);
+	bool load_train_data(std::string fileName, bool hasLabelRow, bool hasLabelColumn);
+	void destroy_train_data();
+
+	void train_data(unsigned int epochs, double initial_learning_rate, unsigned int map_seed);
+	//void train_data(char* fileName, int fileSize, unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed, unsigned int map_seed, bool flag);
+	
 	void save_weights(std::ostream &out);
 
+	std::fstream& GotoLine(std::fstream& file, unsigned int num);
+	void printDoubles(double *doubleList, unsigned int numDoubles, unsigned int numLines);
 private:
+
+	unsigned int _rank;
+	unsigned int _numProcs;
 
 	unsigned int _width;
 	unsigned int _height;
 	unsigned int _mapSize;
+	unsigned int _numExamples;
 	unsigned int _dimensions;
 	double* _weights;
+	double* _trainData;
 	double* _featureMaxes;
 	double* _featureMins;
 
 	void loadWeights(std::istream &in);
-	void normalizeData(double *trainData, int num_exampless);
+	void normalizeData(double *trainData, int num_exampless, double *max, double *min);
 	int calcIndex(int x, int y, int d);
 
 	void initMultiGPUSetup(int &ngpus);
@@ -66,7 +84,7 @@ private:
 	void initGPUNumDenReducMem(const int ngpus, double **&gnumer, double **&gdenom);
 	void initCodebook();
 	void initCodebookOnGPU(double **d_weights);
-	void initGPUCodebooks(double **d_weights);
+	void setGPUCodebooks(double **d_weights);
 
 	static double randWeight();
 };
