@@ -19,17 +19,15 @@
 
 int main(int argc, char *argv[])
 {
-	MPI::Init(argc,argv);
+	MPI_Init(&argc, &argv);
 	
-	char *trainingFileName = new char[100];
-	trainingFileName = "";
+	std::string trainingFileName = "";
 	std::string outFileName = "weights.txt";
 	std::string versionNumber = "0.4.0";
 	int epochs = 10;
 	unsigned int width = 8, height = 8;
 	double learningRate = 0.1;
 	unsigned int n, d, seed;
-	unsigned int* seedArray = new unsigned int[num_procs];
 	unsigned int map_seed = time(NULL);
 	bool hasLabelColumn = false;
 	
@@ -115,8 +113,7 @@ int main(int argc, char *argv[])
 					break;
 				case 2:
 					std::cout << (std::string)argv[i] << std::endl;
-					int lengthOf = strlen(argv[i]);
-					strcpy(trainingFileName, argv[i]);
+					trainingFileName = std::string(argv[i]);
 					break;
 				default:
 					std::cout << "Unrecognized positional argument, '" << argv[i] << "'" << std::endl;
@@ -124,34 +121,13 @@ int main(int argc, char *argv[])
 			posArgPos++;
 		}
 	}
-	
-	// Broadcast the rows_count, dimensions, and epochs that are all handled from the command line. 
-	//MPI_Barrier(MPI::COMM_WORLD);
-	//MPI_Bcast(&n, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
-	//MPI_Bcast(&d, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
-	//MPI_Bcast(&epochs, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
-	//MPI_Bcast(&width, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
-	//MPI_Bcast(&height, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
-	//MPI_Bcast(&map_seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
-	//MPI_Bcast(&column_label, 1, MPI::BOOL, 0, MPI::COMM_WORLD);
-	
-	//MPI_Bcast(trainingFileName, 100, MPI::CHAR, 0, MPI::COMM_WORLD);
-	//MPI_Scatter(seedArray, 1, MPI::UNSIGNED, &seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
-
-	//std::cout << "fileName " << (std::string)trainingFileName << std::endl;
-	
 	// Create untrained SOM
 	SOM newSom = SOM(width, height);
 
-	if(fileSize <= 0) {
-		newSom.gen_train_data(n, d, map_seed)
+	if(trainingFileName.length() <= 0) {
+		newSom.gen_train_data(n, d, map_seed);
 	} else {
-		std::fstream trainDataFile(fileName, std::ios::in | std::ios::out);
-
-		if (!trainDataFile.is_open()) {
-			std::cout << "Invalid training data file '" << fileName << "'" << std::endl;
-		}
-		newSom.load_train_data(trainDataFile, hasLabelColumn);
+		newSom.load_train_data(trainingFileName, false, hasLabelColumn);
 	}
 
 	// Train SOM and time training
@@ -162,6 +138,8 @@ int main(int argc, char *argv[])
 	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
 
 	// Save the SOM's weights on rank 0
+	int rank;
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	if (rank == 0)
 	{
 		std::ofstream outFile(outFileName, std::ofstream::out);
@@ -172,5 +150,5 @@ int main(int argc, char *argv[])
 		}
 	}
 	
-	MPI::Finalize();
+	MPI_Finalize();
 }

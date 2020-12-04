@@ -25,7 +25,7 @@
 #include <vector>
 
 #include "cublas_v2.h"
-#include "mpi.h"
+#include <mpi.h>
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
@@ -60,8 +60,8 @@ public:
 	void printDoubles(double *doubleList, unsigned int numDoubles, unsigned int numLines);
 private:
 
-	unsigned int _rank;
-	unsigned int _numProcs;
+	int _rank;
+	int _numProcs;
 
 	unsigned int _width;
 	unsigned int _height;
@@ -74,7 +74,7 @@ private:
 	double* _featureMins;
 
 	void loadWeights(std::istream &in);
-	void normalizeData(double *trainData, int num_exampless, double *max, double *min);
+	void normalizeData(double *trainData);
 	int calcIndex(int x, int y, int d);
 
 	void initMultiGPUSetup(int &ngpus);
