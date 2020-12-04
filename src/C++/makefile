@@ -1,5 +1,5 @@
 CXX       := nvcc
-CXX_FLAGS := -lcublas -lcurand -Xcompiler " -openmp"
+CXX_FLAGS := -lcublas -lcurand -Xcompiler " --openmp"
 
 BIN := bin
 SRC := src
