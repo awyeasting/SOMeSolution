@@ -40,7 +40,6 @@ double* SOM::generateRandomTrainingInputs(unsigned int examples, unsigned int di
 			//std::cout << returnData[rowMod+j] << " ";
 		}
 		//std::cout << std::endl;
-	}
 	return returnData;
 }
 
@@ -65,6 +64,7 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 	double temp;
 	int cols_count = 0;
 	while (ss >> temp && cols_count < cols) {
+		std::cout << "dimension" << cols_count << std::endl;
 		if (temp > featureMaxes[cols_count])
 		{
 			featureMaxes[cols_count] = temp;
@@ -73,6 +73,7 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 		{
 			featureMins[cols_count] = temp;
 		}
+		std::cout << "featureMaxes[col_count] " << featureMaxes[cols_count] << "featureMins " << featureMins[cols_count] << std::endl;
 		cols_count++;
 		line1.push_back(temp);
 	}
@@ -94,7 +95,7 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 	int i = 0;
 	double* unpackedLine = NULL;
 
-	for(int linesNum = 1; linesNum < read_count * cols; linesNum++){
+	for(int linesNum = 0; linesNum < (read_count-1) * cols; linesNum++){
 		in >> temp;
 		if (!unpackedLine) {
 			unpackedLine = new double[cols];
@@ -108,6 +109,7 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 		{
 			featureMins[i] = temp;
 		}
+		std::cout << "dimension" << i << "featureMaxes[col_count] " << featureMaxes[i] << "featureMins " << featureMins[i] << std::endl;
 		i++;
 		if (i == cols) {
 			if(flag){
@@ -184,8 +186,9 @@ void SOM::train_one_epoch(double* localMap, double* train_data, double* numerato
 	double neighborhood_radius;
 	neighborhood_radius = initial_map_radius * exp(-double(epoch)/time_constant);
 
-	
+	unsigned int rank = MPI::COMM_WORLD.Get_rank();
 
+	//std::cout << "number of examples" << num_examples << std::endl;
 	//learning_rate = initial_learning_rate * exp(-double(epoch)/time_constant);
 
 	// Find BMUs for every input instance
@@ -215,6 +218,7 @@ void SOM::train_one_epoch(double* localMap, double* train_data, double* numerato
 			}
 			// Combine all
 			D[j * _width * _height + i] = x_sq[j] - 2 * xm + m_sq[i];
+			//std::cout << "rank " << rank << " D print j,i,D: " << j << "," << i << "," << D[j*_width *_height + i] << std::endl; 
 		}
 	}
 	
@@ -247,7 +251,9 @@ void SOM::train_one_epoch(double* localMap, double* train_data, double* numerato
 	for (int i = 0; i < _width * _height; i++) {
 		denominators[i] = 0.0;
 		for (int j = 0; j < num_examples; j++) {
+			//std::cout << "rank" << rank << " denom's i(node) before " << i << " j value(example) " << j << " denominators " << denominators[i] << " H term at example " << H[j*_width*_height +i]<< std::endl;
 			denominators[i] += H[j*_width*_height + i];
+			//std::cout << "rank " << rank << " denom's i(node) after " << i << " j value(example) " << j << " denominators " << denominators[i] << std::endl;
 		}
 	}
 	
@@ -258,9 +264,11 @@ void SOM::train_one_epoch(double* localMap, double* train_data, double* numerato
 	for (int i = 0; i < _width * _height; i++) {
 		for (int d = 0; d < _dimensions; d++) {
 			numerators[i * _dimensions + d] = 0.0;
-			for (int j = 0; j < num_examples; j++) {
-				numerators[i*_dimensions + d] += H[j*_width*_height + i] * train_data[j*_dimensions + d];
-			}
+				for (int j = 0; j < num_examples; j++) {
+					//std::cout << "rank" << rank << " numerators at i,d before j " << " node value " << i << " example number " << j << " numerator_value at i,d " << numerators[i*_dimensions + d] << " term added " << H[j*_width*_height+i]  * train_data[j*_dimensions + d] << std::endl;
+					numerators[i*_dimensions + d] += H[j*_width*_height + i] * train_data[j*_dimensions + d];
+					//std::cout << "rank" << rank << " numerators at i,d before j " << " node value " << i << " example number " << j << " numerator_value at i,d " << numerators[i*_dimensions + d] << std::endl;
+				}
 		}
 	}
 	free(D);
@@ -335,22 +343,29 @@ void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, un
 
 		MPI_Barrier(MPI::COMM_WORLD);
 
+		for(int i = 0; i < dimensions;i++){
+			std::cout<< "_featureMaxes["<<i<<"]=" <<_featureMaxes[i]<<std::endl;
+		}
+		for(int i = 0; i < dimensions;i++){
+			std::cout<< "_featureMins["<<i<<"]=" <<_featureMins[i]<<std::endl;
+		}
+
 		//RANK 0 Reduces, 
 		// Allreduce Maxes
 		MPI_Allreduce(_featureMaxes, global_max, dimensions, MPI::DOUBLE , MPI::MAX, MPI::COMM_WORLD);
 		// Reduce Mins
 		MPI_Allreduce(_featureMins, global_min, dimensions, MPI::DOUBLE , MPI::MIN, MPI::COMM_WORLD);
 
-		if(current_rank == 1){
+		if(current_rank == 0){
 			for(int i = 0; i < dimensions;i++){
-				//std::cout<< "_featureMaxes["<<i<<"]=" <<_featureMaxes[i]<<std::endl;
+				std::cout<< "_featureMaxes["<<i<<"]=" <<_featureMaxes[i]<<std::endl;
 			}
 			for(int i = 0; i < dimensions;i++){
-				//std::cout<< "_featureMins["<<i<<"]=" <<_featureMins[i]<<std::endl;
+				std::cout<< "_featureMins["<<i<<"]=" <<_featureMins[i]<<std::endl;
 			}
 
-			//std::cout<<"global_max="<<global_max[0]<<std::endl;
-			//std::cout<<"global_min="<<global_min[0]<<std::endl;
+			std::cout<<"global_max="<<global_max[0]<<std::endl;
+			std::cout<<"global_min="<<global_min[0]<<std::endl;
 		}
 		
 		//MPI BARRIER not sure if this is needed, because I think All_reduce is blocking.
@@ -404,10 +419,10 @@ void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, un
 	double* global_denominator;
 	//Have rank 0 allocate the memory for global num and denom as it will be doing the updating.
 
-	if (current_rank == 0){
-		global_numerators = (double*)malloc(_width * _height * _dimensions*sizeof(double));
-		global_denominator = (double *)malloc(_width * _height * sizeof(double));
-	}
+	
+	global_numerators = (double*)malloc(_width * _height * _dimensions*sizeof(double));
+	global_denominator = (double *)malloc(_width * _height * sizeof(double));
+
 
 	MPI_Barrier(MPI::COMM_WORLD);
 	//std::cout << "Printing Normalized Training Data" << std::endl;
@@ -469,7 +484,10 @@ void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, un
 			#endif
 			for (int i = 0; i < _width * _height; i++) {
 				for (int d = 0; d < _dimensions; d++) {
+					//std::cout << "weights at i,d before " << "node value " << i << " dimension " << d << " weights at i,d" <<  this->_weights[i*_dimensions + d] << std::endl;
+					//std::cout << "global numerater at i,d " << global_numerators [i*_dimensions + d] << "global denominator" << global_denominator[i] << std::endl;
 					this->_weights[i*_dimensions + d] = global_numerators[i*_dimensions + d]/global_denominator[i];
+					//std::cout << " weights at i,d after " << " node value " << i << " dimension " << d << " weights at i,d " << this->_weights[i*_dimensions + d] << std::endl;
 				}
 			}
 		}
@@ -587,7 +605,14 @@ void SOM::normalizeData(double *trainData, int num_examples, double* max, double
 			// std::cout << "FeatureMaxes: " << this->_featureMaxes[j] << std::endl;
 			// std::cout << "Data: " << trainData[rowMod+j] << std::endl;
 			//std::cout << trainData[rowMod+j] <<"=("<<trainData[rowMod+j]<<"-"<<min[j]<<")/("<<max[j]<<"-"<<min[j]<<")"<<std::endl;
-			trainData[rowMod+j] = (trainData[rowMod+j] - min[j])/(max[j]-min[j]);
+			if (max[j] - min[j] <= 0)
+			{
+				trainData[rowMod+j] = 0;
+			}
+			else
+			{
+				trainData[rowMod+j] = (trainData[rowMod+j] - min[j])/(max[j]-min[j]);
+			}
 			//std::cout << trainData[rowMod+j] << " ";
 		}
 		//std::cout << std::endl;
