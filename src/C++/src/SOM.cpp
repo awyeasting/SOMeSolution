@@ -211,7 +211,7 @@ void SOM::normalizeData(double *trainData, int num_examples)
 	this->_featureMins = new double[this->_dimensions];
 	for (int d = 0; d < this->_dimensions; d++)
 	{
-		this->_featureMaxes[d] = std::numeric_limits<double>::min();
+		this->_featureMaxes[d] = -std::numeric_limits<double>::max();
 		this->_featureMins[d] = std::numeric_limits<double>::max();
 		for (int i = 0; i < num_examples; i++)
 		{
@@ -223,7 +223,7 @@ void SOM::normalizeData(double *trainData, int num_examples)
 			}
 		}
 		for (int i = 0; i < num_examples; i++) {
-			if ((this->_featureMaxes[d] - this->_featureMins[d]) <= 0)
+			if ((this->_featureMaxes[d] - this->_featureMins[d]) <= std::numeric_limits<double>::min())
 			{
 				trainData[i*_dimensions + d] = 0;
 			}
