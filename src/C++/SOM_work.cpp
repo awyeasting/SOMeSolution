@@ -10,7 +10,7 @@
 /*
 	Load a set of training data from a given filename
 */
-double* loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsigned int& cols) {
+double* loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsigned int& cols, bool lflag) {
 	// Open file
 	std::ifstream in(trainDataFileName, std::ifstream::in);
 	if (!in.is_open()) {
@@ -29,6 +29,14 @@ double* loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsi
 		cols++;
 		line1.push_back(temp);
 	}
+	
+	// Need to subtract the less column from input.
+	if (lflag == true)
+	{
+		cols--;
+		line1.pop_back();
+	}
+
 	std::vector<double*> lines;
 
 	// Store first line in dynamic array and put into the vector of rows
@@ -49,6 +57,10 @@ double* loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsi
 		unpackedLine[i] = temp;
 		i++;
 		if (i == cols) {
+			if (lflag == true)
+			{
+				in>>temp;
+			}
 			lines.push_back(unpackedLine);
 			i = 0;
 			unpackedLine = NULL;
@@ -79,6 +91,7 @@ int main(int argc, char *argv[])
 	double learningRate = 0.1;
 	int seed= time(NULL);
 	int posArgPos = 0;
+	bool lflag = false;
 	std::cout << "Reading program arguments...\n" << std::flush;
 	for(int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
@@ -88,7 +101,8 @@ int main(int argc, char *argv[])
 			<< "\t(string) Training data" << std::endl;
 			std::cout << "Options:" << std::endl
 			<< "\t(string) -o --out    Path of the output file of node weights" << std::endl
-			<< "\t(int)    -e --epochs Number of epochs used in training" << std::endl;
+			<< "\t(int)    -e --epochs Number of epochs used in training" << std::endl
+			<< "\t(none)   -l 		   Leave out last column in the data ingestion" << std::endl; 
 			return 0;
 		} else if (strcmp(argv[i], "--out") == 0 || strcmp(argv[i], "-o") == 0) {
 			if (i + 1 < argc) {
@@ -116,7 +130,11 @@ int main(int argc, char *argv[])
 				seed = std::stoi(argv[i+1]);
 			}
 			i++;
-		} 
+		}
+		else if (strcmp(argv[i], "-l") == 0)
+		{
+			lflag = true;
+		}
 		else {
 			// Positional arguments
 			// width height trainingdatafile.txt
@@ -148,7 +166,7 @@ int main(int argc, char *argv[])
 	// Load training data
 	std::cout << "Loading train data...\n"<< std::flush;
 	unsigned int n, d;
-	double *trainData = loadTrainingData(trainingFileName, n, d);
+	double *trainData = loadTrainingData(trainingFileName, n, d, lflag);
 	if (trainData == NULL) {
 		return 0;
 	}

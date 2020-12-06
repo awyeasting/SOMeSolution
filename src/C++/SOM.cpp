@@ -23,11 +23,9 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 {
 	this->_dimensions = dimensions;
 	// Normalize data (to be within 0 to 1)
-	std::cout << "Printing Training Data PreNormalize" << std::endl;
-	printDoubles(trainData,num_examples*_dimensions, num_examples);
-	std::cout << std::endl;
 	normalizeData(trainData, num_examples);
 
+	//std::cout << "number of examples" << num_examples << std::endl;
 	// Randomly initialize codebook
 	this->_weights = (double *)malloc(_width * _height * _dimensions * sizeof(double));
 	srand(seed);
@@ -36,8 +34,9 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		for (int j = 0; j < _height; j++) {
 			for (int d = 0; d < _dimensions; d++) {
 				double newWeight = randWeight();
-				std::cout << "i" << i << " j" << j << "d" << d << " weight " << newWeight << std::endl;
+				//std::cout << "i" << i << " j" << j << "d" << d << " weight " << newWeight << std::endl;
 				this->_weights[calcIndex(i,j,d)] = newWeight;
+				//std::cout << "intialization at i,j,d" << "i" << i << "j" << j << "d" << d<< "weight:" << this->_weights[calcIndex(i,j,d)] << std::endl;
 			}
 		}
 	}
@@ -55,15 +54,8 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	double* denominators = (double *)malloc(_width * _height * sizeof(double));
 
 	double neighborhood_radius;
-	std::cout << "Printing Training Data" << std::endl;
-	printDoubles(trainData,num_examples*_dimensions, num_examples);
-	std::cout << std::endl;
 
 	for(int epoch = 0; epoch < epochs; epoch++) {
-		
-		std::cout << "printing map" << std::endl;
-		printDoubles(_weights, _width*_height*_dimensions, _width *_height);
-		std::cout << std::endl;
 
 		//learning_rate = initial_learning_rate * exp(-double(epoch)/time_constant);
 		neighborhood_radius = initial_map_radius * exp(-double(epoch)/time_constant);
@@ -87,6 +79,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 				}
 				// Combine all
 				D[j * _width * _height + i] = x_sq[j] - 2 * xm + m_sq[i];
+				//std::cout << "D print j,i,D: " << j << "," << i << "," << D[j*_width *_height + i] << std::endl; 
 			}
 		}
 
@@ -111,8 +104,10 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		// Left multiply H by a num_examples dimensional vector of ones
 		for (int i = 0; i < _width * _height; i++) {
 			denominators[i] = 0.0;
-			for (int j = 0; j < num_examples; j++) {
+			for (int j = 0; j < num_examples; j++) { 
+				//std::cout << "denom's i(node) before " << i << " j value(example) " << j << " denominators " << denominators[i] << " H term at example " << H[j*_width*_height +i]<< std::endl;
 				denominators[i] += H[j*_width*_height + i];
+				//std::cout << "denom's i(node) after " << i << " j value(example) " << j << " denominators " << denominators[i] << std::endl;
 			}
 		}
 
@@ -120,20 +115,19 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 			for (int d = 0; d < _dimensions; d++) {
 				numerators[i * _dimensions + d] = 0.0;
 				for (int j = 0; j < num_examples; j++) {
+					//std::cout << " numerators at i,d before j " << " node value " << i << " example number " << j << " numerator_value at i,d " << numerators[i*_dimensions + d] << " term added " << H[j*_width*_height+i]  * trainData[j*_dimensions + d] << std::endl;
 					numerators[i*_dimensions + d] += H[j*_width*_height + i] * trainData[j*_dimensions + d];
+					//std::cout << " numerators at i,d before j " << " node value " << i << " example number " << j << " numerator_value at i,d " << numerators[i*_dimensions + d] << std::endl;
 				}
 			}
 		}
-
-		std::cout << "printing local numerators" << std::endl;
-		printDoubles(numerators, _width *_height *_dimensions, _width * _height);
-		std::cout << "printing local denoms" << std::endl;
-		printDoubles(denominators, _width*_height, _width * _height);
-
 		// Update codebook
 		for (int i = 0; i < _width * _height; i++) {
 			for (int d = 0; d < _dimensions; d++) {
+				//std::cout << "weights at i,d before " << "node value " << i << " dimension " << d << " weights at i,d" <<  this->_weights[i*_dimensions + d] << std::endl;
+				//std::cout << "global numerater at i,d " << numerators[i*_dimensions + d] << "global denominator" << denominators[i] << std::endl;
 				this->_weights[i*_dimensions + d] = numerators[i*_dimensions + d]/denominators[i];
+				//std::cout << " weights at i,d after " << " node value " << i << " dimension " << d << " weights at i,d " << this->_weights[i*_dimensions + d] << std::endl;
 			}
 		}
 	}
@@ -146,21 +140,6 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	free(numerators);
 	free(denominators);
 	//free(N);
-}
-
-void SOM::printDoubles(double *doubleList, unsigned int numDoubles, unsigned int numLines)
-{
-	unsigned int numPerLine = numDoubles/numLines;
-	unsigned int counter = 0;
-	while(counter < numDoubles)
-	{
-		for (int j = 0; j< numPerLine; j++)
-		{
-			std::cout << doubleList[counter] << " ";
-			counter++;
-		}
-		std::cout << std::endl;
-	}
 }
 
 /*
@@ -232,7 +211,7 @@ void SOM::normalizeData(double *trainData, int num_examples)
 	this->_featureMins = new double[this->_dimensions];
 	for (int d = 0; d < this->_dimensions; d++)
 	{
-		this->_featureMaxes[d] = -std::numeric_limits<double>::max();
+		this->_featureMaxes[d] = std::numeric_limits<double>::min();
 		this->_featureMins[d] = std::numeric_limits<double>::max();
 		for (int i = 0; i < num_examples; i++)
 		{
@@ -244,8 +223,23 @@ void SOM::normalizeData(double *trainData, int num_examples)
 			}
 		}
 		for (int i = 0; i < num_examples; i++) {
-			trainData[i*_dimensions + d] = (trainData[i*_dimensions + d] - this->_featureMins[d])/(this->_featureMaxes[d]-this->_featureMins[d]);
+			if ((this->_featureMaxes[d] - this->_featureMins[d]) <= 0)
+			{
+				trainData[i*_dimensions + d] = 0;
+			}
+			else 
+			{
+				trainData[i*_dimensions + d] = (trainData[i*_dimensions + d] - this->_featureMins[d])/(this->_featureMaxes[d]-this->_featureMins[d]);
+			}
+			
 		}
+	}
+
+	for(int i = 0; i < _dimensions;i++){
+		std::cout<< "_featureMaxes["<<i<<"]=" <<_featureMaxes[i]<<std::endl;
+	}
+	for(int i = 0; i < _dimensions;i++){
+		std::cout<< "_featureMins["<<i<<"]=" <<_featureMins[i]<<std::endl;
 	}
 }
 
