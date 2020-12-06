@@ -85,6 +85,10 @@ class SOM:
 			plt.figure()
 			plt.imshow(self._weights[:,:,k], cmap=cm.get_cmap(name="RdBu"), interpolation='bicubic')
 			plt.title("Input plane " + str(k+1))
+	
+	def displayColor(self):
+		plt.figure()
+		plt.imshow(self._weights, interpolation='bicubic')
 
 def getArguments():
 	parser = argparse.ArgumentParser(description="Generates a SOM from a given file source or loads a pretrained SOM from a file. Can also display SOMs using a variety of display methods.")
@@ -106,11 +110,11 @@ def getArguments():
 	parser.add_argument('-s', '--squareneurons', type=bool, nargs='?', const=True, default=False, help='Whether the neurons in the map should be square (otherwise hexagonal).')
 	
 	# Display methods
-	parser.add_argument('-d', '--display', action='append', nargs='?', type=str, const='topology', default=[], help='The display method to be used on the SOM. Current usable display methods: topology, input-planes. If no argument after flag then defaults to topology') 
+	parser.add_argument('-d', '--display', action='append', nargs='?', type=str, const='topology', default=[], help='The display method to be used on the SOM. Current usable display methods: topology, input-planes, color. If no argument after flag then defaults to topology') 
 
 	args = parser.parse_args()
 	for dm in args.display:
-		if dm not in ['topology','input-planes']:
+		if dm not in ['topology','input-planes','color']:
 			print('Invalid display method \'' + dm + '\'')
 			return None
 
@@ -145,4 +149,9 @@ if __name__ == '__main__':
 					s.displayTopology()
 				elif dm == 'input-planes':
 					s.displayInputPlanes()
+				elif dm == 'color':
+					if s._weights.shape[2] != 3:
+						print('Display method color invalid for dimensions not equal to 3')
+					else:
+						s.displayColor()
 			plt.show()
