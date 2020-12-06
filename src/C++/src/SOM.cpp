@@ -42,6 +42,7 @@ double* SOM::generateRandomTrainingInputs(unsigned int examples, unsigned int di
 		//std::cout << std::endl;
 	return returnData;
 }
+}
 
 /*
 	Load a set of training data from a given filename
@@ -73,7 +74,7 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 		{
 			featureMins[cols_count] = temp;
 		}
-		std::cout << "featureMaxes[col_count] " << featureMaxes[cols_count] << "featureMins " << featureMins[cols_count] << std::endl;
+		//std::cout << "featureMaxes[col_count] " << featureMaxes[cols_count] << "featureMins " << featureMins[cols_count] << std::endl;
 		cols_count++;
 		line1.push_back(temp);
 	}
@@ -109,7 +110,7 @@ double* SOM::loadTrainingData(std::fstream& in, unsigned int& rows, unsigned int
 		{
 			featureMins[i] = temp;
 		}
-		std::cout << "dimension" << i << "featureMaxes[col_count] " << featureMaxes[i] << "featureMins " << featureMins[i] << std::endl;
+		//std::cout << "dimension" << i << "featureMaxes[col_count] " << featureMaxes[i] << "featureMins " << featureMins[i] << std::endl;
 		i++;
 		if (i == cols) {
 			if(flag){
@@ -344,10 +345,10 @@ void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, un
 		MPI_Barrier(MPI::COMM_WORLD);
 
 		for(int i = 0; i < dimensions;i++){
-			std::cout<< "_featureMaxes["<<i<<"]=" <<_featureMaxes[i]<<std::endl;
+			//std::cout<< "_featureMaxes["<<i<<"]=" <<_featureMaxes[i]<<std::endl;
 		}
 		for(int i = 0; i < dimensions;i++){
-			std::cout<< "_featureMins["<<i<<"]=" <<_featureMins[i]<<std::endl;
+			//std::cout<< "_featureMins["<<i<<"]=" <<_featureMins[i]<<std::endl;
 		}
 
 		//RANK 0 Reduces, 
@@ -358,14 +359,14 @@ void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, un
 
 		if(current_rank == 0){
 			for(int i = 0; i < dimensions;i++){
-				std::cout<< "_featureMaxes["<<i<<"]=" <<_featureMaxes[i]<<std::endl;
+				//std::cout<< "_featureMaxes["<<i<<"]=" <<_featureMaxes[i]<<std::endl;
 			}
 			for(int i = 0; i < dimensions;i++){
-				std::cout<< "_featureMins["<<i<<"]=" <<_featureMins[i]<<std::endl;
+				//std::cout<< "_featureMins["<<i<<"]=" <<_featureMins[i]<<std::endl;
 			}
 
-			std::cout<<"global_max="<<global_max[0]<<std::endl;
-			std::cout<<"global_min="<<global_min[0]<<std::endl;
+			//std::cout<<"global_max="<<global_max[0]<<std::endl;
+			//std::cout<<"global_min="<<global_min[0]<<std::endl;
 		}
 		
 		//MPI BARRIER not sure if this is needed, because I think All_reduce is blocking.
