@@ -15,6 +15,9 @@ def euc(x):
 		s += i ** 2
 	return s
 
+def euc2(x):
+	return x * x
+
 class SOM:
 	def __init__(self, width, height, squareneurons=False):
 		# 'Generate' node lattice
@@ -118,6 +121,34 @@ class SOM:
 		plt.figure()
 		plt.imshow(umatrix, cmap=cm.get_cmap(name="RdBu"), interpolation='bicubic')
 
+	def displayAllUMatrix(self):
+		for feature in range(self._weights.shape[2]):
+			umatrix = np.empty(self._weights.shape[:-1])
+			for row in range(self._weights.shape[0]):
+				for col in range(self._weights.shape[1]):
+					dist = 0
+					n_neighbors = 0
+					# Up
+					if row != self._weights.shape[0] - 1:
+						dist += math.sqrt(euc2(np.subtract(self._weights[row][col][feature], self._weights[row+1][col][feature])))
+						n_neighbors += 1
+					# Right
+					if col != self._weights.shape[1] - 1:
+						dist += math.sqrt(euc2(np.subtract(self._weights[row][col][feature], self._weights[row][col+1][feature])))
+						n_neighbors += 1
+					# Down
+					if row != 0:
+						dist += math.sqrt(euc2(np.subtract(self._weights[row][col][feature], self._weights[row-1][col][feature])))
+						n_neighbors += 1
+					# Left
+					if col != 0:
+						dist += math.sqrt(euc2(np.subtract(self._weights[row][col][feature], self._weights[row][col-1][feature])))
+						n_neighbors += 1
+					dist /= n_neighbors
+					umatrix[row][col] = dist
+			plt.figure()
+			plt.imshow(umatrix, cmap=cm.get_cmap(name="RdBu"), interpolation='bicubic')
+
 def getArguments():
 	parser = argparse.ArgumentParser(description="Generates a SOM from a given file source or loads a pretrained SOM from a file. Can also display SOMs using a variety of display methods.")
 
@@ -142,7 +173,7 @@ def getArguments():
 
 	args = parser.parse_args()
 	for dm in args.display:
-		if dm not in ['topology','input-planes','color','u-matrix']:
+		if dm not in ['topology','input-planes','color','u-matrix','u-matrix-all']:
 			print('Invalid display method \'' + dm + '\'')
 			return None
 
@@ -184,4 +215,6 @@ if __name__ == '__main__':
 						s.displayColor()
 				elif dm == 'u-matrix':
 					s.displayUMatrix()
+				elif dm == 'u-matrix-all':
+					s.displayAllUMatrix()
 			plt.show()
