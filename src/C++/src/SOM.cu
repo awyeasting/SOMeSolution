@@ -247,7 +247,6 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 
 	// Establish multi gpu setup
 	cudaGetDeviceCount(&NUM_GPUS);
-	NUM_GPUS = 1;
 	omp_set_dynamic(0); // Disable dynamic teams
 	omp_set_num_threads(NUM_GPUS);
 
@@ -269,7 +268,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 	for(int epoch = 0; epoch < epochs; epoch++) {
 		// Copy map from cpu to gpus
 		initGPUCodebooks(d_weights);
-		
+
 		// Calculate current neighborhood radius
 		neighborhood_radius = initial_map_radius * exp(-((double)(epoch))/time_constant);
 		// Train a single epoch on all gpus
@@ -476,7 +475,7 @@ void SOM::initGPUTrainData(const int ngpus, double *trainData, double **d_train,
 
 		gpuErrchk(cudaSetDevice(gpu));
 		gpuErrchk(cudaMalloc(&temp_d_train, GPU_EXAMPLES[gpu] * this->_dimensions * sizeof(double)));
-		gpuErrchk(cudaMemcpy(temp_d_train, &trainData[GPU_OFFSET[gpu]], GPU_EXAMPLES[gpu] * this->_dimensions * sizeof(double), cudaMemcpyHostToDevice));
+		gpuErrchk(cudaMemcpy(temp_d_train, &trainData[GPU_OFFSET[gpu] * this->_dimensions], GPU_EXAMPLES[gpu] * this->_dimensions * sizeof(double), cudaMemcpyHostToDevice));
 		// Convert data from row major order to 
 		rowToColumnMajor<<<NUM_BLOCKS, NUM_THREADS>>>(temp_d_train, d_train[gpu], GPU_EXAMPLES[gpu], this->_dimensions, GPU_EXAMPLES[gpu] * this->_dimensions);
 		gpuErrchk(cudaDeviceSynchronize());
