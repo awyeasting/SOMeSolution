@@ -7,6 +7,7 @@
 #include <vector>
 #include <math.h>
 #include <omp.h>
+#include <time.h>
 
 class SOM
 {

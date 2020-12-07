@@ -82,6 +82,36 @@ double* loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsi
 	return res;
 }
 
+// double randWeight()
+// {
+// 	return (double)rand() / (RAND_MAX);
+// }
+
+/*
+	Generates a random set of training data if there is no input file given
+*/
+double* generateRandomTrainingInputs(unsigned int examples, unsigned int dimensions, int seedValue)
+{
+	double *returnData = new double [examples * dimensions];
+	srand(seedValue);
+	for (int i = 0; i < examples; i++)
+	{
+		int rowMod = (examples - i - 1)*dimensions;
+		for (int j = 0; j < dimensions; j++)
+		{
+			double weight = (double)rand() / (RAND_MAX);
+			returnData[rowMod+j] = weight;
+		}
+	}
+
+	for(int i = 0; i < examples; i++){
+		int rowMod = (examples-i-1)*dimensions;
+		for(int j = 0; j < dimensions; j++){
+		}
+	}
+	return returnData;
+}
+
 int main(int argc, char *argv[])
 {
 	std::string trainingFileName = "";
@@ -92,6 +122,8 @@ int main(int argc, char *argv[])
 	int seed= time(NULL);
 	int posArgPos = 0;
 	bool lflag = false;
+	unsigned int n, d;
+
 	std::cout << "Reading program arguments...\n" << std::flush;
 	for(int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
@@ -123,6 +155,16 @@ int main(int argc, char *argv[])
 			else {
 				std::cout << "If the --epochs option is used a valid number of epochs should be specified." << std::endl;
 			}
+		}
+		else if (strcmp(argv[i], "--generate") == 0 || strcmp(argv[i], "-g") == 0) {
+				if (i + 2 < argc)
+				{
+						n = std::stoi(argv[i + 1]);
+						d = std::stoi(argv[i + 2]);
+					i = i+ 2;
+				} else {
+					std::cout << "If the --generate option is used, n examples and d dimensions should be specified." << std::endl;
+				}
 		}
 		else if (strcmp(argv[i], "--seed") == 0 || strcmp(argv[i], "-s") == 0){
 			if (i + 1 < argc)
@@ -165,15 +207,21 @@ int main(int argc, char *argv[])
 
 	// Load training data
 	std::cout << "Loading train data...\n"<< std::flush;
-	unsigned int n, d;
-	double *trainData = loadTrainingData(trainingFileName, n, d, lflag);
+	double *trainData;
+
+	if(trainingFileName == ""){
+		trainData = generateRandomTrainingInputs(n,d, time(NULL));
+	}
+	else{
+		trainData = loadTrainingData(trainingFileName, n, d, lflag);
+	}
+	
 	if (trainData == NULL) {
 		return 0;
 	}
 
 	// Create untrained SOM
 	SOM newSom = SOM(width, height);
-
 	// Train SOM and time training
 	std::cout << "Training SOM...\n"<< std::flush;
 	auto start = std::chrono::high_resolution_clock::now();

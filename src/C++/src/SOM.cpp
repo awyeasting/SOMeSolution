@@ -16,6 +16,7 @@ SOM::SOM(std::istream &in) {
 	this->load_weights(in);
 }
 
+
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
@@ -84,6 +85,9 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		}
 
 		// BMU index of each training instance
+		#ifdef ENABLE_OPENMP
+		#pragma omp parallel for
+		#endif
 		for (int j = 0; j < num_examples; j++) {
 			BMUs[j] = 0;
 			for (int i = 1; i < _width * _height; i++) {
@@ -95,6 +99,9 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 
 		// Calc gaussian function 
 		// (num_examples x num nodes)
+		#ifdef ENABLE_OPENMP
+		#pragma omp parallel for
+		#endif
 		for (int j = 0; j < num_examples; j++) {
 			for (int i = 0; i < _width * _height; i++) {
 				H[j*_width*_height + i] = h(j, i, initial_map_radius, neighborhood_radius, BMUs);
@@ -102,6 +109,9 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		}
 
 		// Left multiply H by a num_examples dimensional vector of ones
+		#ifdef ENABLE_OPENMP
+		#pragma omp parallel for
+		#endif
 		for (int i = 0; i < _width * _height; i++) {
 			denominators[i] = 0.0;
 			for (int j = 0; j < num_examples; j++) { 
@@ -110,7 +120,9 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 				//std::cout << "denom's i(node) after " << i << " j value(example) " << j << " denominators " << denominators[i] << std::endl;
 			}
 		}
-
+		#ifdef ENABLE_OPENMP
+		#pragma omp parallel for
+		#endif
 		for (int i = 0; i < _width * _height; i++) {
 			for (int d = 0; d < _dimensions; d++) {
 				numerators[i * _dimensions + d] = 0.0;
@@ -122,6 +134,9 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 			}
 		}
 		// Update codebook
+		#ifdef ENABLE_OPENMP
+		#pragma omp parallel for
+		#endif
 		for (int i = 0; i < _width * _height; i++) {
 			for (int d = 0; d < _dimensions; d++) {
 				//std::cout << "weights at i,d before " << "node value " << i << " dimension " << d << " weights at i,d" <<  this->_weights[i*_dimensions + d] << std::endl;
@@ -235,12 +250,12 @@ void SOM::normalizeData(double *trainData, int num_examples)
 		}
 	}
 
-	for(int i = 0; i < _dimensions;i++){
-		std::cout<< "_featureMaxes["<<i<<"]=" <<_featureMaxes[i]<<std::endl;
-	}
-	for(int i = 0; i < _dimensions;i++){
-		std::cout<< "_featureMins["<<i<<"]=" <<_featureMins[i]<<std::endl;
-	}
+	// for(int i = 0; i < _dimensions;i++){
+	// 	std::cout<< "_featureMaxes["<<i<<"]=" <<_featureMaxes[i]<<std::endl;
+	// }
+	// for(int i = 0; i < _dimensions;i++){
+	// 	std::cout<< "_featureMins["<<i<<"]=" <<_featureMins[i]<<std::endl;
+	// }
 }
 
 /*
