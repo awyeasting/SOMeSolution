@@ -45,7 +45,7 @@ void findBMUsGPU(double *D, int *BMUs, int xdn, int nnodes) {
 		BMUs[i] = 0;
 		for (int j = 1; j < nnodes; j++) {
 			// Uses column major order
-			if (BMUs[i] > D[j*xdn + i])
+			if (D[BMUs[i] * xdn + i] > D[j * xdn + i])
 				BMUs[i] = j;
 		}
 	}
@@ -101,20 +101,22 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	int NUM_THREADS = 256;
 	int NUM_BLOCKS = (int) ceil((float)(map_size*dimensions)/NUM_THREADS);
 	elementMul<<<NUM_BLOCKS, NUM_THREADS>>>(weights, weights, d_msq, map_size * dimensions);
+
 	// Left multiply elementwise multiplied M by all ones matrix (of dim num examples x dimensions)
 	double *d_o;
 	gpuErrchk(cudaMalloc(&d_o, num_examples * dimensions * sizeof(double)));
 	NUM_BLOCKS = (int) ceil((float)(num_examples * dimensions)/NUM_THREADS);
 	fillOnes<<<NUM_BLOCKS,NUM_THREADS>>>(d_o, num_examples * dimensions);
-	// m_sq = ones x (M * M)
+	gpuErrchk(cudaDeviceSynchronize());
+	// m_sq = ones x (M * M)^T
 	const double alpha0 = 1.0f;
-	const double beta0 = 1.0f;
+	const double beta0 = 0.0f;
 	double *m_sq;
 	gpuErrchk(cudaMalloc(&m_sq, num_examples * map_size * sizeof(double)));
-	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, num_examples, map_size, dimensions, &alpha0, d_o, num_examples, d_msq, dimensions, &beta0, m_sq, num_examples);
+	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, num_examples, map_size, dimensions, &alpha0, d_o, num_examples, d_msq, map_size, &beta0, m_sq, num_examples);
 	
 	gpuErrchk(cudaDeviceSynchronize());
-	
+
 	gpuErrchk(cudaFree(d_msq));
 	gpuErrchk(cudaFree(d_o));
 
@@ -124,6 +126,8 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	gpuErrchk(cudaMalloc(&d_xsq, num_examples * dimensions * sizeof(double)));
 	NUM_BLOCKS = (int) ceil((float)(num_examples*dimensions)/NUM_THREADS);
 	elementMul<<<NUM_BLOCKS, NUM_THREADS>>>(train, train, d_xsq, num_examples * dimensions);
+	gpuErrchk(cudaDeviceSynchronize());
+
 	// Left multiply elementwise multiplied X by all ones matrix (of dim num examples x dimensions)
 	gpuErrchk(cudaMalloc(&d_o, dimensions * map_size * sizeof(double)));
 	NUM_BLOCKS = (int) ceil((float)(dimensions * map_size)/NUM_THREADS);
@@ -131,6 +135,7 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	// x_sq = (X * X) x ones
 	double *x_sq;
 	gpuErrchk(cudaMalloc(&x_sq, num_examples * map_size * sizeof(double)));
+	gpuErrchk(cudaDeviceSynchronize());
 	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, num_examples, map_size, dimensions, &alpha0, d_xsq, num_examples, d_o, dimensions, &beta0, x_sq, num_examples);
 	
 	gpuErrchk(cudaDeviceSynchronize());
@@ -143,18 +148,19 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	// D = x_sq - 2 * x^t * m + m_sq
 
 	const double alpha1 = -2.0f;
+	const double beta1 = 1.0f;
 
 	gpuErrchk(cudaDeviceSynchronize());
 
 	// m_sq = - 2 * (x^t * m) + (m_sq)
-	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, num_examples, map_size, dimensions, &alpha1, train, num_examples, weights, dimensions, &beta0, m_sq, num_examples);
+	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, num_examples, map_size, dimensions, &alpha1, train, num_examples, weights, map_size, &beta1, m_sq, num_examples);
 
 	gpuErrchk(cudaDeviceSynchronize());
 
 	// D = (x_sq) + (-2 * x^t * m + m_sq)
 	double *D;
 	gpuErrchk(cudaMalloc(&D, num_examples * map_size * sizeof(double)));
-	cublasDgeam(handle, CUBLAS_OP_N, CUBLAS_OP_N, num_examples, map_size, &alpha0, x_sq, num_examples, &beta0, m_sq, num_examples, D, num_examples);
+	cublasDgeam(handle, CUBLAS_OP_N, CUBLAS_OP_N, num_examples, map_size, &alpha0, x_sq, num_examples, &beta1, m_sq, num_examples, D, num_examples);
 
 	gpuErrchk(cudaDeviceSynchronize());
 
@@ -186,8 +192,6 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 
 	gpuErrchk(cudaFree(BMUs));
 
-	const double beta1 = 0.0f;
-
 	// Calc denominators
 	// Left multiply H by a num_examples dimensional vector of ones
 	gpuErrchk(cudaMalloc(&d_o, num_examples * sizeof(double)));
@@ -195,7 +199,7 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	
 	fillOnes<<<NUM_BLOCKS,NUM_THREADS>>>(d_o, num_examples);
 	// denom = ones^T (1 x num examples) * H (num examples x map size)
-	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, 1, map_size, num_examples, &alpha0, d_o, 1, H, num_examples, &beta1, denom, 1);
+	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, 1, map_size, num_examples, &alpha0, d_o, 1, H, num_examples, &beta0, denom, 1);
 	
 	gpuErrchk(cudaDeviceSynchronize());
 	
@@ -203,7 +207,7 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	
 	// Calc numerators
 	// numer = H^T x X
-	cublasDgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, map_size, dimensions, num_examples, &alpha0, H, num_examples, train, num_examples, &beta1, numer, map_size);
+	cublasDgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, map_size, dimensions, num_examples, &alpha0, H, num_examples, train, num_examples, &beta0, numer, map_size);
 
 	gpuErrchk(cudaDeviceSynchronize());
 	gpuErrchk(cudaFree(H));
@@ -243,6 +247,7 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 
 	// Establish multi gpu setup
 	cudaGetDeviceCount(&NUM_GPUS);
+	NUM_GPUS = 1;
 	omp_set_dynamic(0); // Disable dynamic teams
 	omp_set_num_threads(NUM_GPUS);
 
@@ -257,12 +262,14 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 		initCodebookOnGPU(d_weights);
 	else
 		initCodebook();
-	initGPUCodebooks(d_weights);
 
 	double initial_map_radius = _width < _height ? ((double)_width) / 2.0 : ((double)_height) / 2.0;
 	double time_constant = double(epochs) / log(initial_map_radius);
 	
 	for(int epoch = 0; epoch < epochs; epoch++) {
+		// Copy map from cpu to gpus
+		initGPUCodebooks(d_weights);
+		
 		// Calculate current neighborhood radius
 		neighborhood_radius = initial_map_radius * exp(-((double)(epoch))/time_constant);
 		// Train a single epoch on all gpus
@@ -284,35 +291,36 @@ void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int 
 				for (int i = 0; i < this->_mapSize; i++) {
 					denom[i] = gdenom[gpu][i];
 					for (int d = 0; d < dimensions; d++) {
-						numer[i + d*this->_mapSize] = gnumer[gpu][i + d*this->_mapSize];
+						numer[d*this->_mapSize + i] = gnumer[gpu][d*this->_mapSize + i];
 					}
 				}
 			} else {
 				for (int i = 0; i < this->_mapSize; i++) {
 					denom[i] += gdenom[gpu][i];
 					for (int d = 0; d < dimensions; d++) {
-						numer[i + d*this->_mapSize] += gnumer[gpu][i + d*this->_mapSize];
+						numer[d*this->_mapSize + i] += gnumer[gpu][d*this->_mapSize + i];
 					}
 				}
 			}
 		}
+
 		// Recalculate weights with new numerators and denominators
 		for (int i = 0; i < this->_mapSize; i++) {
-			for (int d = 0; d < dimensions; d++) {
-				this->_weights[i*dimensions + d] = numer[i + d*this->_mapSize] / denom[i];
-			}
-		}
-
-		// If not the last epoch update gpu copies of codebook/map
-		if (epoch != epochs - 1) { 
-			#pragma omp parallel
-			{
-				int gpu = omp_get_thread_num();
-				gpuErrchk(cudaSetDevice(gpu));
-				gpuErrchk(cudaMemcpy(d_weights[gpu], this->_weights, this->_mapSize * dimensions * sizeof(double), cudaMemcpyHostToDevice));
+			for (int d = 0; d < this->_dimensions; d++) {
+				this->_weights[d*this->_mapSize + i] = numer[d*this->_mapSize + i] / denom[i];
 			}
 		}
 	}
+
+	// Perform column major to row major order
+	double *tempWeights = (double *)malloc(this->_mapSize * this->_dimensions * sizeof(double));
+	for (int i = 0; i < this->_mapSize; i++) {
+		for (int d = 0; d < this->_dimensions; d++) {
+			tempWeights[i*this->_dimensions + d] = this->_weights[d*this->_mapSize + i];
+		}
+	}
+	free(this->_weights);
+	this->_weights = tempWeights;
 
 	for (int gpu = 0; gpu < NUM_GPUS; gpu++) {
 		cudaSetDevice(gpu);
@@ -423,7 +431,13 @@ void SOM::normalizeData(double *trainData, int num_examples)
 			}
 		}
 		for (int i = 0; i < num_examples; i++) {
-			trainData[i*_dimensions + d] = (trainData[i*_dimensions + d] - this->_featureMins[d])/(this->_featureMaxes[d]-this->_featureMins[d]);
+			if ((this->_featureMaxes[d] - this->_featureMins[d]) <= std::numeric_limits<double>::min())
+			{
+				trainData[i*_dimensions + d] = 0;
+			}
+			else {
+				trainData[i*_dimensions + d] = (trainData[i*_dimensions + d] - this->_featureMins[d])/(this->_featureMaxes[d]-this->_featureMins[d]);
+			}
 		}
 	}
 }
