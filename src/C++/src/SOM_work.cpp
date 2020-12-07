@@ -52,8 +52,7 @@ int main(int argc, char *argv[])
 	bool use_mpi = false;
 	bool column_label = false;
 	int lengthOf = 0;
-	
-	trainingFileName = (char *)malloc(sizeof(char) * 100);
+	int fileNameArg = 0;
 	if (rank == 0)
 	{
 		int posArgPos = 0;
@@ -144,6 +143,7 @@ int main(int argc, char *argv[])
 						lengthOf = strlen(argv[i]);
 						//trainingFileName = (char *)malloc(sizeof(char) * lengthOf);
 						strcpy(trainingFileName, argv[i]);
+						fileNameArg = i;
 						//trainingFileName = std::string(argv[i]);
 						break;
 					default:
@@ -196,7 +196,16 @@ int main(int argc, char *argv[])
 	MPI_Bcast(&map_seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 	MPI_Bcast(&column_label, 1, MPI::BOOL, 0, MPI::COMM_WORLD);
 	
-	MPI_Bcast(trainingFileName, 100, MPI::CHAR, 0, MPI::COMM_WORLD);
+	//MPI_Bcast(trainingFileName, 100, MPI::CHAR, 0, MPI::COMM_WORLD);
+	MPI_Bcast(&fileNameArg, 1, MPI::INT, 0, MPI::COMM_WORLD);
+	if (fileNameArg != 0)
+	{
+		strcpy(trainingFileName, argv[fileNameArg]);
+	}
+	else
+	{
+		strcpy(trainingFileName, "");
+	}
 	MPI_Scatter(seedArray, 1, MPI::UNSIGNED, &seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
 
 	std::cout << "fileName " << (std::string)trainingFileName << std::endl;
