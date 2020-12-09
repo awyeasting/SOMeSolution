@@ -120,6 +120,7 @@ class SOM:
 				umatrix[row][col] = dist
 		plt.figure()
 		plt.imshow(umatrix, cmap=cm.get_cmap(name="RdBu"), interpolation='bicubic')
+		plt.colorbar()
 
 	def displayAllUMatrix(self):
 		for feature in range(self._weights.shape[2]):
@@ -148,6 +149,7 @@ class SOM:
 					umatrix[row][col] = dist
 			plt.figure()
 			plt.imshow(umatrix, cmap=cm.get_cmap(name="RdBu"), interpolation='bicubic')
+			plt.colorbar()
 
 def getArguments():
 	parser = argparse.ArgumentParser(description="Generates a SOM from a given file source or loads a pretrained SOM from a file. Can also display SOMs using a variety of display methods.")
@@ -196,7 +198,6 @@ if __name__ == '__main__':
 			# Train SOM
 			s.train(data, iterations=args.trainingiterations)
 			t1 = time.time()
-
 			print('Total training time:', t1-t0, flush=True)
 
 		if args.out != None:
@@ -217,4 +218,5 @@ if __name__ == '__main__':
 					s.displayUMatrix()
 				elif dm == 'u-matrix-all':
 					s.displayAllUMatrix()
+
 			plt.show()
