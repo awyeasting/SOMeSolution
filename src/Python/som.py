@@ -121,6 +121,7 @@ class SOM:
 		plt.figure()
 		plt.imshow(umatrix, cmap=cm.get_cmap(name="RdBu"), interpolation='bicubic')
 		plt.colorbar()
+		plt.axis('off')
 
 	def displayAllUMatrix(self):
 		for feature in range(self._weights.shape[2]):
@@ -150,6 +151,7 @@ class SOM:
 			plt.figure()
 			plt.imshow(umatrix, cmap=cm.get_cmap(name="RdBu"), interpolation='bicubic')
 			plt.colorbar()
+			plt.axis('off')
 
 def getArguments():
 	parser = argparse.ArgumentParser(description="Generates a SOM from a given file source or loads a pretrained SOM from a file. Can also display SOMs using a variety of display methods.")
