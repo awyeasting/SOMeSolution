@@ -17,6 +17,7 @@
 #include <iostream>
 #include <limits>
 #include <math.h>
+#include <mpi.h>
 #include <omp.h>
 #include <sstream>
 #include <string>
@@ -25,7 +26,6 @@
 #include <vector>
 
 #include "cublas_v2.h"
-#include <mpi.h>
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
@@ -37,9 +37,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
    }
 }
 
-#define GPU_BASED_CODEBOOK_INIT true
-
-void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *weights, double *D, double *m_sq, double *x_sq, int *BMUs, double *H, double *numer, double *denom, int width, int height, int num_examples, int dimensions, double initial_map_radius, double neighborhood_radius);
+#define GPU_BASED_CODEBOOK_INIT false
 
 class SOM
 {
@@ -51,9 +49,10 @@ public:
 	bool load_train_data(std::string fileName, bool hasLabelRow, bool hasLabelColumn);
 	void destroy_train_data();
 
-	void train_data(unsigned int epochs, double initial_learning_rate, unsigned int map_seed);
-	//void train_data(char* fileName, int fileSize, unsigned int current_rank, unsigned int num_procs, unsigned int epochs, unsigned int dimensions, unsigned int rowCount, int rank_seed, unsigned int map_seed, bool flag);
-	
+	void train_data(unsigned int epochs, unsigned int map_seed);
+	void train_data(unsigned int epochs, unsigned int map_seed, int num_gpus);
+	void train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, int* gpus_assigned);
+
 	void save_weights(std::ostream &out);
 
 	std::fstream& GotoLine(std::fstream& file, unsigned int num);
@@ -62,29 +61,68 @@ private:
 
 	int _rank;
 	int _numProcs;
+	int _currentEpoch;
+	int _numEpochs;
+	int _numGPUs;
+
+	int *_gpus;
 
 	unsigned int _width;
 	unsigned int _height;
 	unsigned int _mapSize;
 	unsigned int _numExamples;
 	unsigned int _dimensions;
+	unsigned int _mapSeed;
+
+	double _initial_map_radius;
+	double _neighborhood_radius;
+	double _time_constant;
 	double* _weights;
 	double* _trainData;
 	double* _featureMaxes;
 	double* _featureMins;
 
+	// CUBLAS handles (per device)
+	cublasHandle_t* handles;
+	// Local node's all gpu reduced numerators and denominators
+	double *_numer;
+	double *_denom;
+	// Global all node all gpu reduced numerators and denominators
+	double *_global_numer;
+	double *_global_denom;
+	// GPU copies of training data and weights
+	double **_d_train;
+	double **_d_weights;
+	// GPU copies of numerators and denominators
+	double **_d_numer;
+	double **_d_denom;
+	// CPU copies of GPU numerators and denominators
+	double **_gnumer;
+	double **_gdenom;
+	// Number of examples per gpu
+	int *_GPU_EXAMPLES;
+	// Training data offset per gpu
+	int *_GPU_OFFSET;
+
 	void loadWeights(std::istream &in);
 	void normalizeData(double *trainData);
 	int calcIndex(int x, int y, int d);
 
-	void initMultiGPUSetup(int &ngpus);
-	void initNumDenom(double *&numer, double *&denom);
-	void initGPUTrainData(const int ngpus, double *trainData, double **d_train, int *GPU_EXAMPLES, int *GPU_OFFSET);
-	void initGPUTrainMemory(const int ngpus, cublasHandle_t *&handles, double **&d_train, double **&d_weights, double **&d_numer, double **&d_denom, int *&GPU_EXAMPLES, int *&GPU_OFFSET, int num_examples);
-	void initGPUNumDenReducMem(const int ngpus, double **&gnumer, double **&gdenom);
+	void trainOneEpochOneGPU(int gpu);
+	void trainOneEpochMultiGPU();
+
+	void allocNumDenom();
+	void allocGPUTrainMemory();
+
+	void initMultiGPUSetup();
+	void initGPUTrainData();
 	void initCodebook();
-	void initCodebookOnGPU(double **d_weights);
-	void setGPUCodebooks(double **d_weights);
+	void initCodebookOnCPU();
+	void initCodebookOnGPU();
+
+	void updateGPUCodebooks();
+
+	void trainData();
 
 	static double randWeight();
 };

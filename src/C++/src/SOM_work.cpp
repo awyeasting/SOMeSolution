@@ -26,7 +26,6 @@ int main(int argc, char *argv[])
 	std::string versionNumber = "0.4.0";
 	int epochs = 10;
 	unsigned int width = 8, height = 8;
-	double learningRate = 0.1;
 	unsigned int n, d, seed;
 	unsigned int map_seed = time(NULL);
 	bool hasLabelColumn = false;
@@ -132,7 +131,7 @@ int main(int argc, char *argv[])
 
 	// Train SOM and time training
 	auto start = std::chrono::high_resolution_clock::now();
-	newSom.train_data(epochs, learningRate, map_seed);
+	newSom.train_data(epochs, map_seed);
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(stop - start);
 	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
