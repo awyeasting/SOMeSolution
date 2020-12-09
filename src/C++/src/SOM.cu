@@ -90,6 +90,15 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	// Set assigned gpu
 	gpuErrchk(cudaSetDevice(device));
 
+	// Establish matrix of ones for multiplication
+	int d_o_num = std::max(num_examples, map_size) * dimensions;
+	int NUM_THREADS = 256;
+	int NUM_BLOCKS = (int) ceil((float)(d_o_num)/NUM_THREADS);
+	double* d_o;
+	gpuErrchk(cudaMalloc(&d_o, d_o_num * sizeof(double)));
+	fillOnes<<<NUM_BLOCKS,NUM_THREADS>>>(d_o, d_o_num);
+	gpuErrchk(cudaDeviceSynchronize());
+
 	// Find BMUs for every input instance
 	// D = X_sq - 2X^TM + M_sq
 	// D (xdn * nn)
@@ -98,27 +107,21 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	// Elementwise multiply M by M
 	double *d_msq;
 	gpuErrchk(cudaMalloc(&d_msq, map_size * dimensions * sizeof(double)));
-	int NUM_THREADS = 256;
-	int NUM_BLOCKS = (int) ceil((float)(map_size*dimensions)/NUM_THREADS);
+	NUM_THREADS = 256;
+	NUM_BLOCKS = (int) ceil((float)(map_size*dimensions)/NUM_THREADS);
 	elementMul<<<NUM_BLOCKS, NUM_THREADS>>>(weights, weights, d_msq, map_size * dimensions);
+	gpuErrchk(cudaDeviceSynchronize());
 
 	// Left multiply elementwise multiplied M by all ones matrix (of dim num examples x dimensions)
-	double *d_o;
-	gpuErrchk(cudaMalloc(&d_o, num_examples * dimensions * sizeof(double)));
-	NUM_BLOCKS = (int) ceil((float)(num_examples * dimensions)/NUM_THREADS);
-	fillOnes<<<NUM_BLOCKS,NUM_THREADS>>>(d_o, num_examples * dimensions);
-	gpuErrchk(cudaDeviceSynchronize());
 	// m_sq = ones x (M * M)^T
 	const double alpha0 = 1.0f;
 	const double beta0 = 0.0f;
 	double *m_sq;
 	gpuErrchk(cudaMalloc(&m_sq, num_examples * map_size * sizeof(double)));
 	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, num_examples, map_size, dimensions, &alpha0, d_o, num_examples, d_msq, map_size, &beta0, m_sq, num_examples);
-	
 	gpuErrchk(cudaDeviceSynchronize());
 
 	gpuErrchk(cudaFree(d_msq));
-	gpuErrchk(cudaFree(d_o));
 
 	// Calc x_sq
 	// Elementwise multiply X by X
@@ -129,19 +132,14 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	gpuErrchk(cudaDeviceSynchronize());
 
 	// Left multiply elementwise multiplied X by all ones matrix (of dim num examples x dimensions)
-	gpuErrchk(cudaMalloc(&d_o, dimensions * map_size * sizeof(double)));
-	NUM_BLOCKS = (int) ceil((float)(dimensions * map_size)/NUM_THREADS);
-	fillOnes<<<NUM_BLOCKS,NUM_THREADS>>>(d_o, dimensions * map_size);
 	// x_sq = (X * X) x ones
 	double *x_sq;
 	gpuErrchk(cudaMalloc(&x_sq, num_examples * map_size * sizeof(double)));
 	gpuErrchk(cudaDeviceSynchronize());
 	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, num_examples, map_size, dimensions, &alpha0, d_xsq, num_examples, d_o, dimensions, &beta0, x_sq, num_examples);
-	
 	gpuErrchk(cudaDeviceSynchronize());
 
 	gpuErrchk(cudaFree(d_xsq));
-	gpuErrchk(cudaFree(d_o));
 
 	// Calc D
 	// From paper: 
@@ -150,18 +148,14 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	const double alpha1 = -2.0f;
 	const double beta1 = 1.0f;
 
-	gpuErrchk(cudaDeviceSynchronize());
-
 	// m_sq = - 2 * (x^t * m) + (m_sq)
 	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, num_examples, map_size, dimensions, &alpha1, train, num_examples, weights, map_size, &beta1, m_sq, num_examples);
-
 	gpuErrchk(cudaDeviceSynchronize());
 
 	// D = (x_sq) + (-2 * x^t * m + m_sq)
 	double *D;
 	gpuErrchk(cudaMalloc(&D, num_examples * map_size * sizeof(double)));
 	cublasDgeam(handle, CUBLAS_OP_N, CUBLAS_OP_N, num_examples, map_size, &alpha0, x_sq, num_examples, &beta1, m_sq, num_examples, D, num_examples);
-
 	gpuErrchk(cudaDeviceSynchronize());
 
 	gpuErrchk(cudaFree(m_sq));
@@ -172,7 +166,6 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	gpuErrchk(cudaMalloc(&BMUs, num_examples * sizeof(int)));
 	NUM_BLOCKS = (int) ceil((float)(num_examples)/NUM_THREADS);
 	findBMUsGPU<<<NUM_BLOCKS, NUM_THREADS>>>(D, BMUs, num_examples, map_size);
-
 	gpuErrchk(cudaDeviceSynchronize());
 
 	gpuErrchk(cudaFree(D));
@@ -187,20 +180,14 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	double *H;
 	gpuErrchk(cudaMalloc(&H, num_examples * map_size * sizeof(double)));
 	calcGaussian<<<grid, threads>>>(H, num_examples, map_size, initial_map_radius, neighborhood_radius, BMUs, height);
-
 	gpuErrchk(cudaDeviceSynchronize());
 
 	gpuErrchk(cudaFree(BMUs));
 
 	// Calc denominators
 	// Left multiply H by a num_examples dimensional vector of ones
-	gpuErrchk(cudaMalloc(&d_o, num_examples * sizeof(double)));
-	NUM_BLOCKS = (int)ceil((float)num_examples/NUM_THREADS);
-	
-	fillOnes<<<NUM_BLOCKS,NUM_THREADS>>>(d_o, num_examples);
 	// denom = ones^T (1 x num examples) * H (num examples x map size)
 	cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, 1, map_size, num_examples, &alpha0, d_o, 1, H, num_examples, &beta0, denom, 1);
-	
 	gpuErrchk(cudaDeviceSynchronize());
 	
 	gpuErrchk(cudaFree(d_o));
@@ -208,8 +195,8 @@ void trainOneEpoch(cublasHandle_t &handle, int device, double *train, double *we
 	// Calc numerators
 	// numer = H^T x X
 	cublasDgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, map_size, dimensions, num_examples, &alpha0, H, num_examples, train, num_examples, &beta0, numer, map_size);
-
 	gpuErrchk(cudaDeviceSynchronize());
+	
 	gpuErrchk(cudaFree(H));
 }
 
