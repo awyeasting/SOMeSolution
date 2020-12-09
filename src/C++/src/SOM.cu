@@ -1,4 +1,15 @@
 #include "SOM.h"
+#include <curand.h>
+
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
 
 //----------------------------------------------------
 //	CUDA KERNEL FUNCTIONS
@@ -75,17 +86,17 @@ void rowToColumnMajor(double *idata, double *odata, int nrows, int ncols, int n)
 //	SOM private member functions
 //----------------------------------------------------
 
-void trainOneEpochOneGPU(int gpu) {
+void SOM::trainOneEpochOneGPU(int gpu) {
 
 	// Set assigned gpu
 	gpuErrchk(cudaSetDevice(this->_gpus[gpu])); // Map internal gpu id to device id
 	gpuErrchk(cudaDeviceSynchronize());
 
 	// Establish matrix of ones for multiplication
+	int d_o_num = std::max(this->_GPU_EXAMPLES[gpu], this->_mapSize) * this->_dimensions;
 	int NUM_THREADS = 256;
 	int NUM_BLOCKS = (int) ceil((float)(d_o_num)/NUM_THREADS);
 	double* d_o;
-	int d_o_num = std::max(this->_GPU_EXAMPLES[gpu], this->_mapSize) * this->_dimensions;
 	gpuErrchk(cudaMalloc(&d_o, d_o_num * sizeof(double)));
 	fillOnes<<<NUM_BLOCKS,NUM_THREADS>>>(d_o, d_o_num);
 	gpuErrchk(cudaDeviceSynchronize());
@@ -166,7 +177,7 @@ void trainOneEpochOneGPU(int gpu) {
 	dim3 threads(BLOCK_SIZE, BLOCK_SIZE);
 	double *H;
 	gpuErrchk(cudaMalloc(&H, this->_GPU_EXAMPLES[gpu] * this->_mapSize * sizeof(double)));
-	calcGaussian<<<grid, threads>>>(H, this->_GPU_EXAMPLES[gpu], this->_mapSize, this->_initial_map_radius, neighborhood_radius, BMUs, this->_height);
+	calcGaussian<<<grid, threads>>>(H, this->_GPU_EXAMPLES[gpu], this->_mapSize, this->_initial_map_radius, this->_neighborhood_radius, BMUs, this->_height);
 	gpuErrchk(cudaDeviceSynchronize());
 
 	gpuErrchk(cudaFree(BMUs));
@@ -199,23 +210,41 @@ void SOM::trainOneEpochMultiGPU() {
 	}
 }
 
-void SOM::initMultiGPUSetup() {
-	// If numGPUs was not passed by the user then just use all available 
+void SOM::chooseGPUs() {
+	// If numGPUs was not passed by the user then just use average available in group
 	if (this->_numGPUs <= 0) {
-		cudaGetDeviceCount(&this->_numGPUs);
+		cudaGetDeviceCount(&this->_totalNodeGPUs);
+		if (this->_totalNodeGPUs < this->_numGroupProcs) {
+			if (this->_groupRank < this->_totalNodeGPUs)
+				this->_numGPUs = 1;
+			else {
+				std::cout << "WARNING: Too many processors allocated, rank " << this->_rank << " was unable to claim one" << std::endl; 
+				this->_numGPUs = 0;
+			}
+		} else {
+			// Equally divide gpus among the processes
+			this->_numGPUs = this->_totalNodeGPUs/this->_numGroupProcs;
+			// Give extra gpus to last node
+			this->_numGPUs += (this->_groupRank == this->_numGroupProcs - 1 ? this->_totalNodeGPUs % this->_numGroupProcs : 0);
+		}
 	}
 	// If no gpus were assigned then assign them
 	if (this->_gpus == NULL) {
-		this->_gpus = (double *)malloc(this->_numGpus * sizeof(double));
+		this->_gpus = (int *)malloc(this->_numGPUs * sizeof(double));
     	for(int i = 0; i < this->_numGPUs; i++) {
-        	this->_gpus[i] = i;
+        	this->_gpus[i] = i + (this->_groupRank * (this->_totalNodeGPUs / std::min(this->_numGroupProcs, this->_totalNodeGPUs)));
     	}
 	}
+}
+
+void SOM::initMultiGPUSetup() {
+	chooseGPUs();
+
 	omp_set_dynamic(0); // Disable dynamic teams
 	omp_set_num_threads(this->_numGPUs);
 
 	// Allocate memory associated with training on each GPU on each node
-	allocNumDenom();
+	allocNumerDenom();
 	allocGPUTrainMemory();
 
 	// Split training data onto gpus on each node
@@ -235,10 +264,10 @@ void SOM::initGPUTrainData() {
 		double *temp_d_train;
 
 		gpuErrchk(cudaSetDevice(this->_gpus[gpu])); // Map gpu id to device id
-		gpuErrchk(cudaMalloc(&temp_d_train, GPU_EXAMPLES[gpu] * this->_dimensions * sizeof(double)));
-		gpuErrchk(cudaMemcpy(temp_d_train, &this->_trainData[GPU_OFFSET[gpu] * this->_dimensions], GPU_EXAMPLES[gpu] * this->_dimensions * sizeof(double), cudaMemcpyHostToDevice));
+		gpuErrchk(cudaMalloc(&temp_d_train, this->_GPU_EXAMPLES[gpu] * this->_dimensions * sizeof(double)));
+		gpuErrchk(cudaMemcpy(temp_d_train, &this->_trainData[this->_GPU_OFFSET[gpu] * this->_dimensions], this->_GPU_EXAMPLES[gpu] * this->_dimensions * sizeof(double), cudaMemcpyHostToDevice));
 		// Convert data from row major order to 
-		rowToColumnMajor<<<NUM_BLOCKS, NUM_THREADS>>>(temp_d_train, d_train[gpu], GPU_EXAMPLES[gpu], this->_dimensions, GPU_EXAMPLES[gpu] * this->_dimensions);
+		rowToColumnMajor<<<NUM_BLOCKS, NUM_THREADS>>>(temp_d_train, this->_d_train[gpu], this->_GPU_EXAMPLES[gpu], this->_dimensions, this->_GPU_EXAMPLES[gpu] * this->_dimensions);
 		gpuErrchk(cudaDeviceSynchronize());
 		gpuErrchk(cudaFree(temp_d_train));
 	}
@@ -250,8 +279,8 @@ void SOM::allocGPUTrainMemory() {
 	this->_d_weights = (double **)malloc(this->_numGPUs * sizeof(double *));
 	this->_d_numer = (double **)malloc(this->_numGPUs * sizeof(double *));
 	this->_d_denom = (double **)malloc(this->_numGPUs * sizeof(double *));
-	this->_GPU_EXAMPLES = (int *)malloc(this->_numGPUs * sizeof(int));
-	this->_GPU_OFFSET = (int *)malloc(this->_numGPUs * sizeof(int));
+	this->_GPU_EXAMPLES = (unsigned int *)malloc(this->_numGPUs * sizeof(unsigned int));
+	this->_GPU_OFFSET = (unsigned int *)malloc(this->_numGPUs * sizeof(unsigned int));
 	this->_GPU_OFFSET[0] = 0;
 
 	for (int gpu = 0; gpu < this->_numGPUs; gpu++) {
@@ -324,7 +353,7 @@ void SOM::initCodebookOnGPU() {
 	curandGenerator_t gen;
 	curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
 	cudaDeviceSynchronize();
-	// TODO: curandSetPseudoRandomGeneratorSeed(gen, );
+	curandSetPseudoRandomGeneratorSeed(gen, this->_mapSeed);
 	curandGenerateUniformDouble(gen, this->_d_weights[CODEBOOK_INIT_DEVICE], this->_mapSize * this->_dimensions);
 	
 	// Copy map from gpu to cpu
@@ -339,5 +368,18 @@ void SOM::updateGPUCodebooks() {
 
 		gpuErrchk(cudaSetDevice(this->_gpus[gpu])); // Map internal gpu id to device id
 		gpuErrchk(cudaMemcpy(this->_d_weights[gpu], this->_weights, this->_mapSize * this->_dimensions * sizeof(double), cudaMemcpyHostToDevice));
+	}
+}
+
+void SOM::freeGPUMemory() {
+	for (int gpu = 0; gpu < this->_numGPUs; gpu++) {
+		cudaSetDevice(gpu);
+		cublasDestroy(this->_handles[gpu]);
+		cudaFree(this->_d_train[gpu]);
+		cudaFree(this->_d_weights[gpu]);
+		cudaFree(this->_d_numer[gpu]);
+		cudaFree(this->_d_denom[gpu]);
+		free(this->_gnumer[gpu]);
+		free(this->_gdenom[gpu]);
 	}
 }

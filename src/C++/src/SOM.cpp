@@ -10,6 +10,8 @@
 
 #include "SOM.h"
 
+#include <mpi.h>
+
 //----------------------------------------------------
 //	public SOM functions
 //----------------------------------------------------
@@ -17,12 +19,15 @@
 /* 
 	Construct untrained SOM with given lattice width and height
 */
-SOM::SOM(unsigned int width, unsigned int height)
-{
+SOM::SOM(unsigned int width, unsigned int height){
+
+    MPI_Group group;
+    MPI_Comm_group(MPI_COMM_WORLD, &group);
+
 	MPI_Comm_rank(MPI_COMM_WORLD, &this->_rank);
+    MPI_Group_rank(group, &this->_groupRank);
 	MPI_Comm_size(MPI_COMM_WORLD, &this->_numProcs);
-	//this->_rank = MPI::COMM_WORLD.Get_rank();
-	//this->_numProcs = MPI::COMM_WORLD.Get_size();
+    MPI_Group_size(group, &this->_numGroupProcs);
 
 	this->_width = width;
 	this->_height = height;
@@ -32,10 +37,14 @@ SOM::SOM(unsigned int width, unsigned int height)
 	Construct SOM from a saved SOM width, height, and set of weights
 */
 SOM::SOM(std::istream &in) {
+
+    MPI_Group group;
+    MPI_Comm_group(MPI_COMM_WORLD, &group);
+
 	MPI_Comm_rank(MPI_COMM_WORLD, &this->_rank);
+    MPI_Group_rank(group, &this->_groupRank);
 	MPI_Comm_size(MPI_COMM_WORLD, &this->_numProcs);
-	//this->_rank = MPI::COMM_WORLD.Get_rank();
-	//this->_numProcs = MPI::COMM_WORLD.Get_size();
+    MPI_Group_size(group, &this->_numGroupProcs);
 
 	this->loadWeights(in);
 }
@@ -66,7 +75,7 @@ void SOM::gen_train_data(unsigned int num_examples, unsigned int dimensions, uns
 
 	Precondition: File is already open
 */
-bool SOM::load_train_data(std::string fileName, bool hasLabelRow, bool hasLabelColumn) {
+bool SOM::load_train_data(std::string &fileName, bool hasLabelRow, bool hasLabelColumn) {
 	unsigned int cols = 0, rows = 0;
 	bool okOpen = true;
 	if (this->_rank == 0) {
@@ -74,8 +83,7 @@ bool SOM::load_train_data(std::string fileName, bool hasLabelRow, bool hasLabelC
 		std::ifstream infile(fileName, std::ifstream::in);
 		if (!infile.is_open()) {
 			okOpen = false;
-			std::cout << "Invalid training data file '" << fileName << "'" << std::endl;
-		} else {
+        } else {
 			// Read in first row of data into line
 			std::string line;
 			if (hasLabelRow) {
@@ -117,8 +125,8 @@ bool SOM::load_train_data(std::string fileName, bool hasLabelRow, bool hasLabelC
 	this->_featureMaxes = (double *)malloc(sizeof(double) * this->_dimensions);
 	this->_featureMins = (double*)malloc(sizeof(double) * this->_dimensions);
 	for(int i =0; i < this->_dimensions; i++){
-		_featureMaxes[i] = std::numeric_limits<double>::min();
-		_featureMins[i] = std::numeric_limits<double>::max();
+		this->_featureMaxes[i] = -std::numeric_limits<double>::max();
+		this->_featureMins[i] = std::numeric_limits<double>::max();
 	}
 
 	// Calculate starting position
@@ -133,14 +141,14 @@ bool SOM::load_train_data(std::string fileName, bool hasLabelRow, bool hasLabelC
 	// Prepare for reading in assigned chunk
 	bool readOk = true;
 	std::fstream infile(fileName, std::ifstream::in); // Assume because it opened for rank 0 it will open for all
-	std::fstream& procfile = GotoLine(infile, startRow);
+    std::fstream& procfile = GotoLine(infile, startRow);
 	this->_trainData = (double *)malloc(this->_numExamples * this->_dimensions * sizeof(double));
 
 	// Read in assigned portion
 	int procSectionLineNum = 0;
 	std::string line;
 	while(procSectionLineNum < read_count && std::getline(procfile, line)) {
-		if (line.compare("") != 0) {
+        if (line.compare("") != 0) {
 			std::stringstream ss(line);
 			double temp;
 			int cols_count = 0;
@@ -156,7 +164,7 @@ bool SOM::load_train_data(std::string fileName, bool hasLabelRow, bool hasLabelC
 				cols_count++;
 			}
 			// If the line finished reading early then the data is not of a consistent dimension
-			if (cols_count != this->_dimensions - 1) {
+			if (cols_count != this->_dimensions) {
 				readOk = false;
 			}
 			procSectionLineNum++;
@@ -165,7 +173,7 @@ bool SOM::load_train_data(std::string fileName, bool hasLabelRow, bool hasLabelC
 			break;
 	}
 	// If it didn't read enough lines then the data is not properly formatted
-	if (procSectionLineNum != read_count - 1) {
+	if (procSectionLineNum != this->_numExamples) {
 		readOk = false;
 		return false;
 	}
@@ -186,7 +194,7 @@ bool SOM::load_train_data(std::string fileName, bool hasLabelRow, bool hasLabelC
 	double *globalMins = (double*)malloc(sizeof(double) * this->_dimensions);
 	MPI_Allreduce(this->_featureMaxes, globalMaxes, this->_dimensions, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 	MPI_Allreduce(this->_featureMins, globalMins, this->_dimensions, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
-		
+
 	// Free pre reduction maxes and mins
 	free(this->_featureMaxes);
 	free(this->_featureMins);
@@ -227,14 +235,27 @@ void SOM::train_data(unsigned int epochs, unsigned int map_seed, int num_gpus) {
     this->trainData();
 }
 
+void SOM::train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, int gpu_num_offset) {
+    this->_numEpochs = epochs;
+    this->_mapSeed = map_seed;
+
+    this->_numGPUs = num_gpus;
+    this->_gpus = (int *)malloc(this->_numGPUs * sizeof(double));
+    for(int i = 0; i < this->_numGPUs; i++) {
+        this->_gpus[i] = i + gpu_num_offset;
+    }
+
+    this->trainData();
+}
+
 void SOM::train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, int* gpus_assigned) {
     this->_numEpochs = epochs;
     this->_mapSeed = map_seed;
 
-    this->_numGPUs = num_gpus
-    this->_gpus = (double *)malloc(this->_numGpus * sizeof(double));
+    this->_numGPUs = num_gpus;
+    this->_gpus = (int *)malloc(this->_numGPUs * sizeof(double));
     for(int i = 0; i < this->_numGPUs; i++) {
-        this->_gpus[i] = gpusAssigned[i];
+        this->_gpus[i] = gpus_assigned[i];
     }
 
     this->trainData();
@@ -261,7 +282,7 @@ void SOM::trainData()
 	this->_initial_map_radius = this->_width < this->_height ? ((double)this->_width) / 2.0 : ((double)this->_height) / 2.0;
 	this->_time_constant = double(this->_numEpochs) / log(this->_initial_map_radius);
 	
-	for(this->_currentEpoch = 0; this->_currentEpoch < epochs; this->_currentEpoch++) {
+	for(this->_currentEpoch = 0; this->_currentEpoch < this->_numEpochs; this->_currentEpoch++) {
 		// Wait for all other nodes to start the epoch
 		MPI_Barrier(MPI_COMM_WORLD);
 
@@ -321,16 +342,7 @@ void SOM::trainData()
 	free(this->_weights);
 	this->_weights = tempWeights;
 
-	for (int gpu = 0; gpu < this->_numGPUs; gpu++) {
-		cudaSetDevice(gpu);
-		cublasDestroy(this->_handles[gpu]);
-		cudaFree(this->_d_train[gpu]);
-		cudaFree(this->_d_weights[gpu]);
-		cudaFree(this->_d_numer[gpu]);
-		cudaFree(this->_d_denom[gpu]);
-		free(this->_gnumer[gpu]);
-		free(this->_gdenom[gpu]);
-	}
+	freeGPUMemory();
 
 	free(this->_GPU_EXAMPLES);
 	free(this->_GPU_OFFSET);
@@ -370,7 +382,7 @@ void SOM::save_weights(std::ostream &out)
 
 std::fstream& SOM::GotoLine(std::fstream& file, unsigned int num){
     file.seekg(std::ios::beg);
-    for(int i=0; i < num - 1; ++i){
+    for(int i=0; i < num; i++){
         file.ignore(std::numeric_limits<std::streamsize>::max(),'\n');
     }
     return file;

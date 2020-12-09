@@ -1,5 +1,11 @@
-CXX       := nvcc
-CXX_FLAGS := -lcublas -lcurand -Xcompiler " --openmp"
+CUDA         := /usr/local/cuda-11.1
+
+NVCC         := nvcc
+MPICXX 	     := mpicxx
+MPICXX_FLAGS := -I$(CUDA)/include
+NVCC_FLAGS   := -lcublas -lcurand
+CXX          := g++
+CXX_FLAGS    :=
 
 MPI := $(HOME)/opt/openmpi
 BIN := bin
@@ -26,14 +32,18 @@ run: clean build
 
 library:
 	@echo "Building somesolution library..."
-	$(CXX) $(CXX_FLAGS) -c -I$(INCLUDE) -I$(MPI)/include -L$(MPI)/lib -lmpi $(SRC)/SOM.cu -o $(BIN)/$(LIBRARY)$(OBJEXT)
-	ar -rcs $(BIN)/$(LIBRARY)$(LIBEXT) $(BIN)/$(LIBRARY)$(OBJEXT)
+	$(MPICXX) $(MPICXX_FLAGS) -c -I$(INCLUDE) $(SRC)/SOM.cpp -o $(BIN)/$(LIBRARY)_mpi$(OBJEXT)
+	$(NVCC) $(NVCC_FLAGS) -c -I$(INCLUDE) $(SRC)/SOM.cu -o $(BIN)/$(LIBRARY)_cuda$(OBJEXT)
+	ar -crs $(BIN)/$(LIBRARY)$(LIBEXT) $(BIN)/$(LIBRARY)_cuda$(OBJEXT) $(BIN)/$(LIBRARY)_mpi$(OBJEXT)
 
 build: library
 	@echo ""
 	@echo "Building somwork executable..."
-	$(CXX) $(CXX_FLAGS) -c -I$(INCLUDE) -I$(MPI)/include -L$(MPI)/lib -lmpi $(SRC)/SOM_work.cpp -o $(BIN)/$(EXECUTABLE)$(OBJEXT)
-	$(CXX) $(CXX_FLAGS) -I$(INCLUDE) -I$(MPI)/include -L$(MPI)/lib -lmpi $(BIN)/$(EXECUTABLE)$(OBJEXT) -o $(BIN)/$(EXECUTABLE) $(BIN)/$(LIBRARY)$(LIBEXT)
+	$(MPICXX) $(MPICXX_FLAGS) -c -I$(INCLUDE) $(SRC)/SOM_work.cpp -o $(BIN)/$(EXECUTABLE)$(OBJEXT)
+	mpicxx bin/somesolution_mpi.o bin/somesolution_cuda.o bin/somwork_mpicuda.o -Iinclude -lcublas -lcurand -lcudart -L/usr/local/cuda-11.1/lib64 -o bin/somwork_mpicuda -fopenmp
+
+extra:
+	$(MPICXX) $(MPICXX_FLAGS) -I$(INCLUDE) $(NVCC_FLAGS) $(BIN)/$(EXECUTABLE)$(OBJEXT) $(BIN)/$(LIBRARY)$(LIBEXT) -o $(BIN)/$(EXECUTABLE) -fopenmp
 
 clean:
 	@echo "Clearing..."

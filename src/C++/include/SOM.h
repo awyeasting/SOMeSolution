@@ -12,12 +12,10 @@
 #define SOM_H
 
 #include <chrono>
-#include <curand.h>
 #include <fstream>
 #include <iostream>
 #include <limits>
 #include <math.h>
-#include <mpi.h>
 #include <omp.h>
 #include <sstream>
 #include <string>
@@ -26,16 +24,6 @@
 #include <vector>
 
 #include "cublas_v2.h"
-
-#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
-{
-   if (code != cudaSuccess) 
-   {
-      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-      if (abort) exit(code);
-   }
-}
 
 #define GPU_BASED_CODEBOOK_INIT false
 
@@ -46,11 +34,12 @@ public:
 	SOM(std::istream &in);
 
 	void gen_train_data(unsigned int examples, unsigned int dimensions, unsigned int seedValue);
-	bool load_train_data(std::string fileName, bool hasLabelRow, bool hasLabelColumn);
+	bool load_train_data(std::string &fileName, bool hasLabelRow, bool hasLabelColumn);
 	void destroy_train_data();
 
 	void train_data(unsigned int epochs, unsigned int map_seed);
 	void train_data(unsigned int epochs, unsigned int map_seed, int num_gpus);
+	void train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, int gpu_num_offset);
 	void train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, int* gpus_assigned);
 
 	void save_weights(std::ostream &out);
@@ -60,10 +49,13 @@ public:
 private:
 
 	int _rank;
+	int _groupRank;
 	int _numProcs;
+	int _numGroupProcs;
 	int _currentEpoch;
 	int _numEpochs;
 	int _numGPUs;
+	int _totalNodeGPUs;
 
 	int *_gpus;
 
@@ -83,7 +75,7 @@ private:
 	double* _featureMins;
 
 	// CUBLAS handles (per device)
-	cublasHandle_t* handles;
+	cublasHandle_t* _handles;
 	// Local node's all gpu reduced numerators and denominators
 	double *_numer;
 	double *_denom;
@@ -100,9 +92,9 @@ private:
 	double **_gnumer;
 	double **_gdenom;
 	// Number of examples per gpu
-	int *_GPU_EXAMPLES;
+	unsigned int *_GPU_EXAMPLES;
 	// Training data offset per gpu
-	int *_GPU_OFFSET;
+	unsigned int *_GPU_OFFSET;
 
 	void loadWeights(std::istream &in);
 	void normalizeData(double *trainData);
@@ -111,9 +103,10 @@ private:
 	void trainOneEpochOneGPU(int gpu);
 	void trainOneEpochMultiGPU();
 
-	void allocNumDenom();
+	void allocNumerDenom();
 	void allocGPUTrainMemory();
 
+	void chooseGPUs();
 	void initMultiGPUSetup();
 	void initGPUTrainData();
 	void initCodebook();
@@ -123,6 +116,8 @@ private:
 	void updateGPUCodebooks();
 
 	void trainData();
+
+	void freeGPUMemory();
 
 	static double randWeight();
 };

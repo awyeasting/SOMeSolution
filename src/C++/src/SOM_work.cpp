@@ -17,20 +17,24 @@
 #include <time.h>
 #include "SOM.h"
 
+#include <mpi.h>
+
 int main(int argc, char *argv[])
 {
 	MPI_Init(&argc, &argv);
 	
 	std::string trainingFileName = "";
 	std::string outFileName = "weights.txt";
+	std::cout << "trainingFileName: '" << trainingFileName << "' " << trainingFileName.length()<< std::endl;
+	for(int i = 0; i < argc; i++) {
+		std::cout << "argv[" << i << "] = '" << argv[i] << "'\n";
+	}
 	std::string versionNumber = "0.4.0";
 	int epochs = 10;
 	unsigned int width = 8, height = 8;
 	unsigned int n, d, seed;
 	unsigned int map_seed = time(NULL);
 	bool hasLabelColumn = false;
-	
-	trainingFileName = (char *)malloc(sizeof(char) * 100);
 
 	// Load program arguments on rank 0
 	int posArgPos = 0;
@@ -122,6 +126,8 @@ int main(int argc, char *argv[])
 	}
 	// Create untrained SOM
 	SOM newSom = SOM(width, height);
+
+	std::cout << "trainingFileName: '" << trainingFileName << "' " << trainingFileName.length()<< std::endl;
 
 	if(trainingFileName.length() <= 0) {
 		newSom.gen_train_data(n, d, map_seed);
