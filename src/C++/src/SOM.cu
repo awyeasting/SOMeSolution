@@ -329,6 +329,7 @@ void SOM::allocNumerDenom() {
 }
 
 void SOM::initCodebook() {
+	this->_weights = (double *)malloc(this->_mapSize * this->_dimensions * sizeof(double));
 	if (this->_rank == 0) {
 		srand(this->_mapSeed);
 		if (GPU_BASED_CODEBOOK_INIT)
@@ -339,7 +340,6 @@ void SOM::initCodebook() {
 }
 
 void SOM::initCodebookOnCPU() {
-	this->_weights = (double *)malloc(this->_mapSize * this->_dimensions * sizeof(double));
 	for (int i = 0; i < this->_mapSize; i++) {
 		for (int d = 0; d < this->_dimensions; d++) {
 			this->_weights[i * this->_dimensions + d] = this->randWeight();
@@ -357,7 +357,6 @@ void SOM::initCodebookOnGPU() {
 	curandGenerateUniformDouble(gen, this->_d_weights[CODEBOOK_INIT_DEVICE], this->_mapSize * this->_dimensions);
 	
 	// Copy map from gpu to cpu
-	this->_weights = (double *)malloc(this->_mapSize * this->_dimensions * sizeof(double));
 	gpuErrchk(cudaMemcpy(this->_weights, this->_d_weights[CODEBOOK_INIT_DEVICE], this->_mapSize * this->_dimensions * sizeof(double), cudaMemcpyDeviceToHost));
 }
 
@@ -373,7 +372,7 @@ void SOM::updateGPUCodebooks() {
 
 void SOM::freeGPUMemory() {
 	for (int gpu = 0; gpu < this->_numGPUs; gpu++) {
-		cudaSetDevice(gpu);
+		cudaSetDevice(this->_gpus[gpu]); // Map internal gpu id to device id
 		cublasDestroy(this->_handles[gpu]);
 		cudaFree(this->_d_train[gpu]);
 		cudaFree(this->_d_weights[gpu]);

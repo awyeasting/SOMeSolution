@@ -37,8 +37,7 @@ public:
 	bool load_train_data(std::string &fileName, bool hasLabelRow, bool hasLabelColumn);
 	void destroy_train_data();
 
-	void train_data(unsigned int epochs, unsigned int map_seed);
-	void train_data(unsigned int epochs, unsigned int map_seed, int num_gpus);
+	void train_data(unsigned int epochs, unsigned int map_seed, int num_gpus = -1);
 	void train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, int gpu_num_offset);
 	void train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, int* gpus_assigned);
 

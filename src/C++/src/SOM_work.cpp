@@ -25,15 +25,12 @@ int main(int argc, char *argv[])
 	
 	std::string trainingFileName = "";
 	std::string outFileName = "weights.txt";
-	std::cout << "trainingFileName: '" << trainingFileName << "' " << trainingFileName.length()<< std::endl;
-	for(int i = 0; i < argc; i++) {
-		std::cout << "argv[" << i << "] = '" << argv[i] << "'\n";
-	}
 	std::string versionNumber = "0.4.0";
 	int epochs = 10;
 	unsigned int width = 8, height = 8;
 	unsigned int n, d, seed;
 	unsigned int map_seed = time(NULL);
+	int gpusPerProc = -1;
 	bool hasLabelColumn = false;
 
 	// Load program arguments on rank 0
@@ -45,11 +42,12 @@ int main(int argc, char *argv[])
 			<< "\t(int)    SOM height" << std::endl
 			<< "\t(string) Training data" << std::endl;
 			std::cout << "Options:" << std::endl
-			<< "\t(int int)-g --generate  num features, num_dimensions for generating random data" << std::endl
-			<< "\t(string) -o --out       Path of the output file of node weights" << std::endl
-			<< "\t(int)    -e --epochs    Number of epochs used in training" << std::endl
-			<< "\t(int)    -s --seed      Integer value to intialize seed for generating" << std::endl
-			<< "\t         -l --labeled   Indicates the last column is a label" <<std::endl;
+			<< "\t(int int)-g --generate       num features, num_dimensions for generating random data" << std::endl
+			<< "\t(string) -o --out            Path of the output file of node weights" << std::endl
+			<< "\t(int)    -e --epochs         Number of epochs used in training" << std::endl
+			<< "\t(int)    -s --seed           Integer value to intialize seed for generating" << std::endl
+			<< "\t         -l --labeled        Indicates the last column is a label" <<std::endl
+			<< "\t(int)    -gp --gpus-per-proc The number of gpus each processor should utilize" << std::endl;
 			return 0;
 		} else if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
 			std::cout << "somesolution v" << versionNumber << std::endl;
@@ -96,6 +94,16 @@ int main(int argc, char *argv[])
 		{
 			hasLabelColumn = true;
 		}
+		else if (strcmp(argv[i], "--gpus-per-proc") == 0)
+		{
+			if (i + 1 < argc) {
+				gpusPerProc = std::stoi(argv[i+1]);
+				i++;
+			}
+			else {
+				std::cout << "If the --gpus-per-proc option is used, the following argument should be an integer argument" << std::endl;
+			}
+		}
 		else {
 			// Positional arguments
 			// width height trainingdatafile.txt
@@ -127,8 +135,6 @@ int main(int argc, char *argv[])
 	// Create untrained SOM
 	SOM newSom = SOM(width, height);
 
-	std::cout << "trainingFileName: '" << trainingFileName << "' " << trainingFileName.length()<< std::endl;
-
 	if(trainingFileName.length() <= 0) {
 		newSom.gen_train_data(n, d, map_seed);
 	} else {
@@ -136,17 +142,23 @@ int main(int argc, char *argv[])
 	}
 
 	// Train SOM and time training
+	MPI_Barrier(MPI_COMM_WORLD);
 	auto start = std::chrono::high_resolution_clock::now();
-	newSom.train_data(epochs, map_seed);
+	newSom.train_data(epochs, map_seed, gpusPerProc);
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(stop - start);
-	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
+	double trainingTime = duration.count();
+	double globalTrainingTime;
+	MPI_Reduce(&trainingTime, &globalTrainingTime, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
 	// Save the SOM's weights on rank 0
 	int rank;
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	std::cout << "[" << rank << "]: finished training in " << trainingTime << std::endl;
 	if (rank == 0)
 	{
+		std::cout << "All procs finished training in " << globalTrainingTime << "seconds" << std::endl;
+
 		std::ofstream outFile(outFileName, std::ofstream::out);
 		if (outFile.is_open()) {
 			newSom.save_weights(outFile);

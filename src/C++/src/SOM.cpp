@@ -214,17 +214,6 @@ void SOM::destroy_train_data() {
 	this->_featureMins = NULL;
 }
 
-void SOM::train_data(unsigned int epochs, unsigned int map_seed) {
-    this->_numEpochs = epochs;
-    this->_mapSeed = map_seed;
-
-    // Flag num gpus for automatic setting later on
-    this->_numGPUs = -1;
-    this->_gpus = NULL;
-
-    this->trainData();
-}
-
 void SOM::train_data(unsigned int epochs, unsigned int map_seed, int num_gpus) {
     this->_numEpochs = epochs;
     this->_mapSeed = map_seed;
@@ -264,8 +253,7 @@ void SOM::train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, i
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
-void SOM::trainData()
-{
+void SOM::trainData(){
 	// Check that the training data has been loaded in
 	if (this->_trainData == NULL) {
 		std::cout << "Train data not yet initialized in SOM" << std::endl;
@@ -281,13 +269,14 @@ void SOM::trainData()
 
 	this->_initial_map_radius = this->_width < this->_height ? ((double)this->_width) / 2.0 : ((double)this->_height) / 2.0;
 	this->_time_constant = double(this->_numEpochs) / log(this->_initial_map_radius);
-	
+
 	for(this->_currentEpoch = 0; this->_currentEpoch < this->_numEpochs; this->_currentEpoch++) {
+
 		// Wait for all other nodes to start the epoch
 		MPI_Barrier(MPI_COMM_WORLD);
 
 		// Send out the map on proc 0
-		MPI_Bcast(this->_weights, this->_width * this->_height * this->_dimensions, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		MPI_Bcast(this->_weights, this->_mapSize * this->_dimensions, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
 		// Update gpu copies of the map
 		updateGPUCodebooks();
