@@ -250,6 +250,10 @@ void SOM::train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, i
     this->trainData();
 }
 
+int SOM::get_num_gpus() {
+	return this->_numGPUs;
+}
+
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
@@ -270,52 +274,71 @@ void SOM::trainData(){
 	this->_initial_map_radius = this->_width < this->_height ? ((double)this->_width) / 2.0 : ((double)this->_height) / 2.0;
 	this->_time_constant = double(this->_numEpochs) / log(this->_initial_map_radius);
 
-	for(this->_currentEpoch = 0; this->_currentEpoch < this->_numEpochs; this->_currentEpoch++) {
-
-		// Wait for all other nodes to start the epoch
-		MPI_Barrier(MPI_COMM_WORLD);
-
-		// Send out the map on proc 0
-		MPI_Bcast(this->_weights, this->_mapSize * this->_dimensions, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-		// Update gpu copies of the map
-		updateGPUCodebooks();
-
-		// Calculate current neighborhood radius
-		this->_neighborhood_radius = this->_initial_map_radius * exp(-((double)(this->_currentEpoch))/this->_time_constant);
-		// Train a single epoch on all chosen gpus
-        trainOneEpochMultiGPU();
-
-		// Reduce numerators and denominators across gpus on proc
-		// TODO: Implement more complex reduction
-		for(int gpu = 0; gpu < this->_numGPUs; gpu++) {
+	this->_currentEpoch = 0;
+	#pragma omp parallel 
+	{
+		int gpu = omp_get_thread_num();
+		for(int curEpoch = 0; curEpoch < this->_numEpochs; curEpoch++) {
 			if (gpu == 0) {
-				for (int i = 0; i < this->_mapSize; i++) {
-					this->_denom[i] = this->_gdenom[gpu][i];
-					for (int d = 0; d < this->_dimensions; d++) {
-						this->_numer[d*this->_mapSize + i] = this->_gnumer[gpu][d*this->_mapSize + i];
-					}
-				}
-			} else {
-				for (int i = 0; i < this->_mapSize; i++) {
-					this->_denom[i] += this->_gdenom[gpu][i];
-					for (int d = 0; d < this->_dimensions; d++) {
-						this->_numer[d*this->_mapSize + i] += this->_gnumer[gpu][d*this->_mapSize + i];
-					}
-				}
-			}
-		}
+				// Set the current epoch for the whole proc's SOM on the first thread
+				this->_currentEpoch = curEpoch;
+				// Calculate current neighborhood radius
+				this->_neighborhood_radius = this->_initial_map_radius * exp(-((double)(this->_currentEpoch))/this->_time_constant);
 
-		// Reduce numerators and denominators across all procs
-		MPI_Reduce(this->_numer, this->_global_numer, this->_mapSize * this->_dimensions, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-		MPI_Reduce(this->_numer, this->_global_numer, this->_mapSize, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+				// Wait for all other nodes to start the epoch
+				MPI_Barrier(MPI_COMM_WORLD);
+
+				// Send out the map on proc 0
+				MPI_Bcast(this->_weights, this->_mapSize * this->_dimensions, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+			}
+			// Wait for proc allocated to first gpu to have correct map
+			#pragma omp barrier
+
+			// Update gpu copies of the map
+			updateGPUCodebook(gpu);
+
+			// Train a single epoch on all chosen gpus
+			trainOneEpochOneGPU(gpu);
 		
-		// Update codebook/map
-		if (this->_rank == 0) {
-			// Recalculate weights with new numerators and denominators
-			for (int i = 0; i < this->_mapSize; i++) {
-				for (int d = 0; d < this->_dimensions; d++) {
-					this->_weights[d*this->_mapSize + i] = this->_numer[d*this->_mapSize + i] / this->_denom[i];
+			// Copy GPU copy of numerators and denominators back to CPU
+			gpuErrchk(cudaMemcpy(this->_gnumer[gpu],this->_d_numer[gpu], this->_mapSize * this->_dimensions * sizeof(double), cudaMemcpyDeviceToHost));
+			gpuErrchk(cudaMemcpy(this->_gdenom[gpu],this->_d_denom[gpu], this->_mapSize * sizeof(double), cudaMemcpyDeviceToHost));
+
+			#pragma omp barrier
+
+			// Reduce numerators and denominators across gpus on proc
+			int step = 0;
+			while((1 << step) < this->_numGPUs) {
+				if (gpu % (1 << (step + 1)) == 0) {
+					int otherGPU = gpu + (1 << step);
+					if (otherGPU < this->_numGPUs) {
+						for (int i = 0; i < this->_mapSize; i++) {
+							this->_gdenom[gpu][i] += this->_gdenom[otherGPU][i];
+							for (int d = 0; d < this->_dimensions; d++) {
+								this->_gnumer[gpu][d*this->_mapSize + i] += this->_gnumer[otherGPU][d*this->_mapSize + i];
+							}
+						}
+					}
+				}
+				#pragma omp barrier
+				step++;
+			}
+			if (gpu == 0) {
+				memcpy(this->_denom, this->_gdenom[0], this->_mapSize * sizeof(double));
+				memcpy(this->_numer, this->_gnumer[0], this->_mapSize * this->_dimensions * sizeof(double));
+
+				// Reduce numerators and denominators across all procs
+				MPI_Reduce(this->_numer, this->_global_numer, this->_mapSize * this->_dimensions, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+				MPI_Reduce(this->_denom, this->_global_denom, this->_mapSize, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+				
+				// Update codebook/map
+				if (this->_rank == 0) {
+					// Recalculate weights with new numerators and denominators
+					for (int i = 0; i < this->_mapSize; i++) {
+						for (int d = 0; d < this->_dimensions; d++) {
+							this->_weights[d*this->_mapSize + i] = this->_numer[d*this->_mapSize + i] / this->_denom[i];
+						}
+					}
 				}
 			}
 		}

@@ -153,11 +153,15 @@ int main(int argc, char *argv[])
 
 	// Save the SOM's weights on rank 0
 	int rank;
+	int numProcs;
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-	std::cout << "[" << rank << "]: finished training in " << trainingTime << std::endl;
+	MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
+	int localNumGPUs = newSom.get_num_gpus();
+	int globalNumGPUs;
+	MPI_Reduce(&localNumGPUs, &globalNumGPUs, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 	if (rank == 0)
 	{
-		std::cout << "All procs finished training in " << globalTrainingTime << "seconds" << std::endl;
+		std::cout << numProcs << "," << globalNumGPUs << "," << globalTrainingTime << std::endl;
 
 		std::ofstream outFile(outFileName, std::ofstream::out);
 		if (outFile.is_open()) {

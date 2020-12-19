@@ -361,13 +361,17 @@ void SOM::initCodebookOnGPU() {
 }
 
 void SOM::updateGPUCodebooks() {
-	#pragma omp parallel
+	//#pragma omp parallel
+	for (int gpu = 0; gpu < this->_numGPUs; gpu++)
 	{
-		int gpu = omp_get_thread_num();
-
-		gpuErrchk(cudaSetDevice(this->_gpus[gpu])); // Map internal gpu id to device id
-		gpuErrchk(cudaMemcpy(this->_d_weights[gpu], this->_weights, this->_mapSize * this->_dimensions * sizeof(double), cudaMemcpyHostToDevice));
+		//int gpu = omp_get_thread_num();
+		updateGPUCodebook(gpu)
 	}
+}
+
+void SOM::updateGPUCodebook(int gpu) {
+	gpuErrchk(cudaSetDevice(this->_gpus[gpu])); // Map internal gpu id to device id
+	gpuErrchk(cudaMemcpy(this->_d_weights[gpu], this->_weights, this->_mapSize * this->_dimensions * sizeof(double), cudaMemcpyHostToDevice));
 }
 
 void SOM::freeGPUMemory() {

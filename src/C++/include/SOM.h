@@ -43,6 +43,8 @@ public:
 
 	void save_weights(std::ostream &out);
 
+	int get_num_gpus();
+
 	std::fstream& GotoLine(std::fstream& file, unsigned int num);
 	void printDoubles(double *doubleList, unsigned int numDoubles, unsigned int numLines);
 private:
@@ -113,6 +115,7 @@ private:
 	void initCodebookOnGPU();
 
 	void updateGPUCodebooks();
+	void updateGPUCodebook(int gpu);
 
 	void trainData();
 
