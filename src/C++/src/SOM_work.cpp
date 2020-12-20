@@ -33,9 +33,11 @@ void countRowsAndCols(std::string fileName, unsigned int&rows, unsigned int&cols
 
 int main(int argc, char *argv[])
 {
-	MPI::Init(argc,argv);
-	unsigned int num_procs = MPI::COMM_WORLD.Get_size();
-	unsigned int rank = MPI::COMM_WORLD.Get_rank();
+	MPI_Init(&argc, &argv);
+	int num_procs; 
+	MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+	int rank;
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	
 	char * trainingFileName = new char[100];
 	std::string outFileName = "weights.txt";
@@ -169,13 +171,13 @@ int main(int argc, char *argv[])
 	
 	int fileSize = strlen(trainingFileName);
 
-	MPI_Scatter(seedArray, 1, MPI::UNSIGNED, &seed, 1, MPI::UNSIGNED, 0, MPI::COMM_WORLD);
+	MPI_Scatter(seedArray, 1, MPI_UNSIGNED, &seed, 1, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
 
 	// Create untrained SOM
 	SOM newSom = SOM(width, height);
 	// Train SOM and time training
 	auto start = std::chrono::high_resolution_clock::now();
-	newSom.train_data(trainingFileName, fileSize, rank, num_procs, epochs, d, n, seed, map_seed, column_label);
+	newSom.train_data(trainingFileName, fileSize, (unsigned int)rank, (unsigned int)num_procs, epochs, d, n, seed, map_seed, column_label);
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(stop - start);
 	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
@@ -192,5 +194,5 @@ int main(int argc, char *argv[])
 		}
 	}
 	
-	MPI::Finalize();
+	MPI_Finalize();
 }

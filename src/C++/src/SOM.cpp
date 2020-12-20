@@ -275,18 +275,18 @@ void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, un
 		//Need to do reading with localmaxes and localMins.
 		train_data = loadTrainingData(file, rowCount, dimensions, read_count, _featureMaxes, _featureMins, flag);
 
-		MPI_Barrier(MPI::COMM_WORLD);
+		MPI_Barrier(MPI_COMM_WORLD);
 
 
 		//RANK 0 Reduces, 
 		// Allreduce Maxes
-		MPI_Allreduce(_featureMaxes, global_max, dimensions, MPI::DOUBLE , MPI::MAX, MPI::COMM_WORLD);
+		MPI_Allreduce(_featureMaxes, global_max, dimensions, MPI_DOUBLE , MPI_MAX, MPI_COMM_WORLD);
 		// Reduce Mins
-		MPI_Allreduce(_featureMins, global_min, dimensions, MPI::DOUBLE , MPI::MIN, MPI::COMM_WORLD);
+		MPI_Allreduce(_featureMins, global_min, dimensions, MPI_DOUBLE , MPI_MIN, MPI_COMM_WORLD);
 
 		
 		//MPI BARRIER not sure if this is needed, because I think All_reduce is blocking.
-		MPI_Barrier(MPI::COMM_WORLD);
+		MPI_Barrier(MPI_COMM_WORLD);
 		this->_dimensions = dimensions;
 		normalizeData(train_data, read_count, global_max, global_min);
 
@@ -294,7 +294,7 @@ void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, un
 
 	auto stop2 = std::chrono::high_resolution_clock::now();
 	auto duration2 = std::chrono::duration_cast<std::chrono::duration<double>>(stop2 - start2);
-	MPI_Barrier(MPI::COMM_WORLD);
+	MPI_Barrier(MPI_COMM_WORLD);
 
 	//Rank 0 needs to do the initalization of the map.
 	if (current_rank == 0)
@@ -331,7 +331,7 @@ void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, un
 		global_denominator = (double *)malloc(_width * _height * sizeof(double));
 	}
 
-	MPI_Barrier(MPI::COMM_WORLD);
+	MPI_Barrier(MPI_COMM_WORLD);
 	//printDoubles(train_data, rowCount*_dimensions, rowCount);
 	double time_sec_fill = 0;
 	double time_one_train = 0;
@@ -340,7 +340,7 @@ void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, un
 
 	for(int epoch = 0; epoch < epochs; epoch++) {
 
-		MPI_Barrier(MPI::COMM_WORLD);
+		MPI_Barrier(MPI_COMM_WORLD);
 
 		//Filling localMap in rank 0 to broadcast to all processes
 		auto start3 = std::chrono::high_resolution_clock::now();	
@@ -354,11 +354,11 @@ void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, un
 			}
 		}
 
-		MPI_Bcast(local_map, _width*_height*_dimensions, MPI::DOUBLE, 0, MPI::COMM_WORLD);
+		MPI_Bcast(local_map, _width*_height*_dimensions, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 		auto stop3 = std::chrono::high_resolution_clock::now();
 		auto duration3 = std::chrono::duration_cast<std::chrono::duration<double>>(stop3 - start3);
 		time_sec_fill += duration3.count();
-		MPI_Barrier(MPI::COMM_WORLD);
+		MPI_Barrier(MPI_COMM_WORLD);
 		
 		auto start4 = std::chrono::high_resolution_clock::now();
 		train_one_epoch(local_map, train_data, local_numerators, local_denominators, read_count, initial_map_radius, epoch, time_constant);	
@@ -366,16 +366,16 @@ void SOM::train_data(char* fileName, int fileSize, unsigned int current_rank, un
 		auto stop4 = std::chrono::high_resolution_clock::now();
 		auto duration4 = std::chrono::duration_cast<std::chrono::duration<double>>(stop4 - start4);
 		time_one_train += duration4.count();
-		MPI_Barrier(MPI::COMM_WORLD);
+		MPI_Barrier(MPI_COMM_WORLD);
 
 		auto start5 = std::chrono::high_resolution_clock::now();
-		MPI_Reduce(local_numerators, global_numerators, _width *_height * _dimensions, MPI::DOUBLE, MPI::SUM, 0, MPI::COMM_WORLD);
-		MPI_Reduce(local_denominators, global_denominator, _width * _height, MPI::DOUBLE, MPI::SUM, 0, MPI::COMM_WORLD);
+		MPI_Reduce(local_numerators, global_numerators, _width *_height * _dimensions, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+		MPI_Reduce(local_denominators, global_denominator, _width * _height, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 		auto stop5 = std::chrono::high_resolution_clock::now();
 		auto duration5 = std::chrono::duration_cast<std::chrono::duration<double>>(stop5 - start5);
 		time_reduce_local += duration5.count();
 
-		MPI_Barrier(MPI::COMM_WORLD);
+		MPI_Barrier(MPI_COMM_WORLD);
 
 
 		auto start6 = std::chrono::high_resolution_clock::now();
