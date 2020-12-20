@@ -1,4 +1,4 @@
-CUDA         := /usr/local/cuda-11.1
+CUDA         := /usr/local/cuda-11.2
 
 NVCC         := nvcc
 MPICXX 	     := mpicxx
@@ -40,7 +40,7 @@ build: library
 	@echo ""
 	@echo "Building somwork executable..."
 	$(MPICXX) $(MPICXX_FLAGS) -c -I$(INCLUDE) $(SRC)/SOM_work.cpp -o $(BIN)/$(EXECUTABLE)$(OBJEXT)
-	mpicxx bin/somesolution_mpi.o bin/somesolution_cuda.o bin/somwork_mpicuda.o -Iinclude -lcublas -lcurand -lcudart -L/usr/local/cuda-11.1/lib64 -o bin/somwork_mpicuda -fopenmp
+	mpicxx $(BIN)/$(LIBRARY)_mpi$(OBJEXT) $(BIN)/$(LIBRARY)_cuda$(OBJEXT) $(BIN)/$(EXECUTABLE)$(OBJEXT) -Iinclude -lcublas -lcurand -lcudart -L$(CUDA)/lib64 -o $(BIN)/$(EXECUTABLE) -fopenmp
 
 extra:
 	$(MPICXX) $(MPICXX_FLAGS) -I$(INCLUDE) $(NVCC_FLAGS) $(BIN)/$(EXECUTABLE)$(OBJEXT) $(BIN)/$(LIBRARY)$(LIBEXT) -o $(BIN)/$(EXECUTABLE) -fopenmp

@@ -299,10 +299,6 @@ void SOM::trainData(){
 
 			// Train a single epoch on all chosen gpus
 			trainOneEpochOneGPU(gpu);
-		
-			// Copy GPU copy of numerators and denominators back to CPU
-			gpuErrchk(cudaMemcpy(this->_gnumer[gpu],this->_d_numer[gpu], this->_mapSize * this->_dimensions * sizeof(double), cudaMemcpyDeviceToHost));
-			gpuErrchk(cudaMemcpy(this->_gdenom[gpu],this->_d_denom[gpu], this->_mapSize * sizeof(double), cudaMemcpyDeviceToHost));
 
 			#pragma omp barrier
 

@@ -196,6 +196,10 @@ void SOM::trainOneEpochOneGPU(int gpu) {
 	gpuErrchk(cudaDeviceSynchronize());
 	
 	gpuErrchk(cudaFree(H));
+
+	// Copy GPU copy of numerators and denominators back to CPU
+	gpuErrchk(cudaMemcpy(this->_gnumer[gpu],this->_d_numer[gpu], this->_mapSize * this->_dimensions * sizeof(double), cudaMemcpyDeviceToHost));
+	gpuErrchk(cudaMemcpy(this->_gdenom[gpu],this->_d_denom[gpu], this->_mapSize * sizeof(double), cudaMemcpyDeviceToHost));
 }
 
 void SOM::trainOneEpochMultiGPU() {
@@ -365,7 +369,7 @@ void SOM::updateGPUCodebooks() {
 	for (int gpu = 0; gpu < this->_numGPUs; gpu++)
 	{
 		//int gpu = omp_get_thread_num();
-		updateGPUCodebook(gpu)
+		updateGPUCodebook(gpu);
 	}
 }
 
