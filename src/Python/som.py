@@ -85,6 +85,38 @@ class SOM:
 			plt.figure()
 			plt.imshow(self._weights[:,:,k], cmap=cm.get_cmap(name="RdBu"), interpolation='bicubic')
 			plt.title("Input plane " + str(k+1))
+	
+	def displayColor(self):
+		plt.figure()
+		plt.imshow(self._weights, interpolation='bicubic')
+	
+	def displayUMatrix(self):
+		# Step 1: Calculate the distance between each node and its neighbors (for square node maps)
+		umatrix = np.empty(self._weights.shape[:-1])
+		for row in range(self._weights.shape[0]):
+			for col in range(self._weights.shape[1]):
+				dist = 0
+				n_neighbors = 0
+				# Up
+				if row != self._weights.shape[0] - 1:
+					dist += math.sqrt(euc(np.subtract(self._weights[row][col], self._weights[row+1][col])))
+					n_neighbors += 1
+				# Right
+				if col != self._weights.shape[1] - 1:
+					dist += math.sqrt(euc(np.subtract(self._weights[row][col], self._weights[row][col+1])))
+					n_neighbors += 1
+				# Down
+				if row != 0:
+					dist += math.sqrt(euc(np.subtract(self._weights[row][col], self._weights[row-1][col])))
+					n_neighbors += 1
+				# Left
+				if col != 0:
+					dist += math.sqrt(euc(np.subtract(self._weights[row][col], self._weights[row][col-1])))
+					n_neighbors += 1
+				dist /= n_neighbors
+				umatrix[row][col] = dist
+		plt.figure()
+		plt.imshow(umatrix, cmap=cm.get_cmap(name="RdBu"), interpolation='bicubic')
 
 def getArguments():
 	parser = argparse.ArgumentParser(description="Generates a SOM from a given file source or loads a pretrained SOM from a file. Can also display SOMs using a variety of display methods.")
@@ -106,11 +138,11 @@ def getArguments():
 	parser.add_argument('-s', '--squareneurons', type=bool, nargs='?', const=True, default=False, help='Whether the neurons in the map should be square (otherwise hexagonal).')
 	
 	# Display methods
-	parser.add_argument('-d', '--display', action='append', nargs='?', type=str, const='topology', default=[], help='The display method to be used on the SOM. Current usable display methods: topology, input-planes. If no argument after flag then defaults to topology') 
+	parser.add_argument('-d', '--display', action='append', nargs='?', type=str, const='topology', default=[], help='The display method to be used on the SOM. Current usable display methods: topology, input-planes, color, u-matrix. If no argument after flag then defaults to topology') 
 
 	args = parser.parse_args()
 	for dm in args.display:
-		if dm not in ['topology','input-planes']:
+		if dm not in ['topology','input-planes','color','u-matrix']:
 			print('Invalid display method \'' + dm + '\'')
 			return None
 
@@ -145,4 +177,11 @@ if __name__ == '__main__':
 					s.displayTopology()
 				elif dm == 'input-planes':
 					s.displayInputPlanes()
+				elif dm == 'color':
+					if s._weights.shape[2] != 3:
+						print('Display method color invalid for dimensions not equal to 3')
+					else:
+						s.displayColor()
+				elif dm == 'u-matrix':
+					s.displayUMatrix()
 			plt.show()
