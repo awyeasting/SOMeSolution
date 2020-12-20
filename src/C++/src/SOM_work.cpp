@@ -1,106 +1,40 @@
+/*
+ * This file is part of SOMeSolution.
+ *
+ * Developed for Pacific Northwest National Laboratory.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the BSD 3-Clause License as published by
+ * the Software Package Data Exchange.
+ */
+
 #include <chrono>
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <string>
 #include <cstring>
+#include <time.h>
 #include "SOM.h"
 
-/*
-	Generates a random set of training data if there is no input file given
-*/
-
-double *generateRandomTrainingInputs(unsigned int &examples, unsigned int &dimensions, int seedValue)
-{
-	srand(seedValue);
-	double *returnData = new double [examples * dimensions];
-	for (int i = 0; i < examples; i++)
-	{
-		int rowMod = (examples - i - 1)*dimensions;
-		for (int j = 0; j < dimensions; j++)
-		{
-			double weight = SOM::randWeight();
-			returnData[rowMod+j] = weight;
-		}
-	}
-	return returnData;
-}
-
-/*
-	Load a set of training data from a given filename
-*/
-double* loadTrainingData(std::string trainDataFileName, unsigned int& rows, unsigned int& cols) {
-	// Open file
-	std::ifstream in(trainDataFileName, std::ifstream::in);
-	if (!in.is_open()) {
-		std::cout << "Invalid training data file '" << trainDataFileName << "'" << std::endl;
-		return NULL;
-	}
-
-	// Read the first line to obtain the number of columns (dimensions) in the training data
-	std::string line;
-	std::getline(in, line);
-	std::stringstream ss(line);
-	std::vector<double> line1;
-	double temp;
-	cols = 0;
-	while (ss >> temp) {
-		cols++;
-		line1.push_back(temp);
-	}
-	std::vector<double*> lines;
-
-	// Store first line in dynamic array and put into the vector of rows
-	double* tempLine1 = new double[cols];
-	for (int j = 0; j < cols; j++) {
-		tempLine1[cols - j - 1] = line1.back();
-		line1.pop_back();
-	}
-	lines.push_back(tempLine1);
-
-	// Read all numbers into cols dimensional arrays added to the rows list
-	int i = 0;
-	double* unpackedLine = NULL;
-	while (in >> temp) {
-		if (!unpackedLine) {
-			unpackedLine = new double[cols];
-		}
-		unpackedLine[i] = temp;
-		i++;
-		if (i == cols) {
-			lines.push_back(unpackedLine);
-			i = 0;
-			unpackedLine = NULL;
-		}
-	}
-
-	// Convert vector of arrays into 1d array of examples
-	rows = lines.size();
-	double* res = new double[rows * cols];
-	for (i = 0; i < rows; i++) {
-		double* temp = lines.back();
-		int rowMod = (rows-i-1)*cols;
-		for (int j = 0; j < cols; j++) {
-			res[rowMod + j] = temp[j];
-		}
-		lines.pop_back();
-		free(temp);
-	}
-	return res;
-}
+#include <mpi.h>
 
 int main(int argc, char *argv[])
 {
+	MPI_Init(&argc, &argv);
+	
 	std::string trainingFileName = "";
 	std::string outFileName = "weights.txt";
-	std::string versionNumber = "0.1.0";
+	std::string versionNumber = "0.4.0";
 	int epochs = 10;
 	unsigned int width = 8, height = 8;
-	double learningRate = 0.1;
-	unsigned int n, d;
+	unsigned int n, d, seed;
+	unsigned int map_seed = time(NULL);
+	int gpusPerProc = -1;
+	bool hasLabelColumn = false;
+
+	// Load program arguments on rank 0
 	int posArgPos = 0;
-	srand(time(NULL));
-	int seedValue = rand();
 	for(int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
 			std::cout << "Positional Arguments:" << std::endl
@@ -108,10 +42,12 @@ int main(int argc, char *argv[])
 			<< "\t(int)    SOM height" << std::endl
 			<< "\t(string) Training data" << std::endl;
 			std::cout << "Options:" << std::endl
-			<< "\t(int int)-g --generate  num features, num_dimensions for generating random data" << std::endl
-			<< "\t(string) -o --out       Path of the output file of node weights" << std::endl
-			<< "\t(int)    -e --epochs    Number of epochs used in training" << std::endl
-			<< "\t(int)    -s --seed      Integer value to intialize seed for generating" << std::endl;
+			<< "\t(int int)-g --generate       num features, num_dimensions for generating random data" << std::endl
+			<< "\t(string) -o --out            Path of the output file of node weights" << std::endl
+			<< "\t(int)    -e --epochs         Number of epochs used in training" << std::endl
+			<< "\t(int)    -s --seed           Integer value to intialize seed for generating" << std::endl
+			<< "\t         -l --labeled        Indicates the last column is a label" <<std::endl
+			<< "\t(int)    -gp --gpus-per-proc The number of gpus each processor should utilize" << std::endl;
 			return 0;
 		} else if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
 			std::cout << "somesolution v" << versionNumber << std::endl;
@@ -138,25 +74,36 @@ int main(int argc, char *argv[])
 		else if (strcmp(argv[i], "--generate") == 0 || strcmp(argv[i], "-g") == 0) {
 			if (i + 2 < argc)
 			{
-					n = std::stoi(argv[i + 1]);
-					d = std::stoi(argv[i + 2]);
+				n = std::stoi(argv[i + 1]);
+				d = std::stoi(argv[i + 2]);
 				i = i+ 2;
 			} else {
 				std::cout << "If the --generate option is used, n examples and d dimensions should be specified." << std::endl;
 			}
 		}
-
 		else if (strcmp(argv[i], "--seed") == 0 || strcmp(argv[i], "-s") == 0){
 			if (i + 1 < argc) {
-				seedValue = std::stoi(argv[i+1]);
+				map_seed = std::stoi(argv[i+1]);
 				i++;
 			}
 			else {
 				std::cout << "If the --seed option is used, the following argument should be an integer argument" << std::endl;
 			}
 		}
-
-			
+		else if (strcmp(argv[i], "--labeled") == 0 || strcmp(argv[i], "-l") == 0)
+		{
+			hasLabelColumn = true;
+		}
+		else if (strcmp(argv[i], "--gpus-per-proc") == 0)
+		{
+			if (i + 1 < argc) {
+				gpusPerProc = std::stoi(argv[i+1]);
+				i++;
+			}
+			else {
+				std::cout << "If the --gpus-per-proc option is used, the following argument should be an integer argument" << std::endl;
+			}
+		}
 		else {
 			// Positional arguments
 			// width height trainingdatafile.txt
@@ -176,6 +123,7 @@ int main(int argc, char *argv[])
 					}
 					break;
 				case 2:
+					std::cout << (std::string)argv[i] << std::endl;
 					trainingFileName = std::string(argv[i]);
 					break;
 				default:
@@ -184,33 +132,44 @@ int main(int argc, char *argv[])
 			posArgPos++;
 		}
 	}
-	// Load training data
-	double *trainData;
-	if (trainingFileName == "")
-	{
-		trainData = generateRandomTrainingInputs(n,d, seedValue);
-	}
-	else
-	{
-		trainData = loadTrainingData(trainingFileName, n, d);
-	}
-	if (trainData == NULL) {
-		return 0;
-	}
 	// Create untrained SOM
 	SOM newSom = SOM(width, height);
+
+	if(trainingFileName.length() <= 0) {
+		newSom.gen_train_data(n, d, map_seed);
+	} else {
+		newSom.load_train_data(trainingFileName, false, hasLabelColumn);
+	}
+
 	// Train SOM and time training
+	MPI_Barrier(MPI_COMM_WORLD);
 	auto start = std::chrono::high_resolution_clock::now();
-	newSom.train_data(trainData, n, d, epochs, learningRate);
+	newSom.train_data(epochs, map_seed, gpusPerProc);
 	auto stop = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(stop - start);
-	std::cout << "Finished training in " << duration.count() << "seconds" << std::endl;
+	double trainingTime = duration.count();
+	double globalTrainingTime;
+	MPI_Reduce(&trainingTime, &globalTrainingTime, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
-	// Save the SOM's weights
-	std::ofstream outFile(outFileName, std::ofstream::out);
-	if (outFile.is_open()) {
-		newSom.save_weights(outFile);
-		outFile.close();
-		std::cout << "SOM saved to " << outFileName << std::endl;
+	// Save the SOM's weights on rank 0
+	int rank;
+	int numProcs;
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
+	int localNumGPUs = newSom.get_num_gpus();
+	int globalNumGPUs;
+	MPI_Reduce(&localNumGPUs, &globalNumGPUs, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+	if (rank == 0)
+	{
+		std::cout << numProcs << "," << globalNumGPUs << "," << globalTrainingTime << std::endl;
+
+		std::ofstream outFile(outFileName, std::ofstream::out);
+		if (outFile.is_open()) {
+			newSom.save_weights(outFile);
+			outFile.close();
+			//std::cout << "SOM saved to " << outFileName << std::endl;
+		}
 	}
+	
+	MPI_Finalize();
 }

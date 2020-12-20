@@ -1,10 +1,34 @@
+/*
+ * This file is part of SOMeSolution.
+ *
+ * Developed for Pacific Northwest National Laboratory.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the BSD 3-Clause License as published by
+ * the Software Package Data Exchange.
+ */
+
 #include "SOM.h"
+
+#include <mpi.h>
+
+//----------------------------------------------------
+//	public SOM functions
+//----------------------------------------------------
 
 /* 
 	Construct untrained SOM with given lattice width and height
 */
-SOM::SOM(unsigned int width, unsigned int height)
-{
+SOM::SOM(unsigned int width, unsigned int height){
+
+    MPI_Group group;
+    MPI_Comm_group(MPI_COMM_WORLD, &group);
+
+	MPI_Comm_rank(MPI_COMM_WORLD, &this->_rank);
+    MPI_Group_rank(group, &this->_groupRank);
+	MPI_Comm_size(MPI_COMM_WORLD, &this->_numProcs);
+    MPI_Group_size(group, &this->_numGroupProcs);
+
 	this->_width = width;
 	this->_height = height;
 }
@@ -13,122 +37,334 @@ SOM::SOM(unsigned int width, unsigned int height)
 	Construct SOM from a saved SOM width, height, and set of weights
 */
 SOM::SOM(std::istream &in) {
-	this->load_weights(in);
+
+    MPI_Group group;
+    MPI_Comm_group(MPI_COMM_WORLD, &group);
+
+	MPI_Comm_rank(MPI_COMM_WORLD, &this->_rank);
+    MPI_Group_rank(group, &this->_groupRank);
+	MPI_Comm_size(MPI_COMM_WORLD, &this->_numProcs);
+    MPI_Group_size(group, &this->_numGroupProcs);
+
+	this->loadWeights(in);
+}
+
+/*
+	Generates a random set of training data if there is no input file given
+*/
+void SOM::gen_train_data(unsigned int num_examples, unsigned int dimensions, unsigned int seedValue)
+{
+	this->_dimensions = dimensions;
+	// TODO: Switch to compute based examples distribution
+	this->_numExamples = num_examples / this->_numProcs;
+	this->_trainData = new double [this->_numExamples * this->_dimensions];
+	srand(seedValue + this->_rank);
+	for (int i = 0; i < this->_numExamples; i++)
+	{
+		int rowMod = (this->_numExamples - i - 1) * this->_dimensions;
+		for (int d = 0; d < this->_dimensions; d++)
+		{
+			double weight = SOM::randWeight();
+			this->_trainData[rowMod + d] = weight;
+		}
+	}
+}
+
+/*
+	Load a set of training data from a given filename
+
+	Precondition: File is already open
+*/
+bool SOM::load_train_data(std::string &fileName, bool hasLabelRow, bool hasLabelColumn) {
+	unsigned int cols = 0, rows = 0;
+	bool okOpen = true;
+	if (this->_rank == 0) {
+		// Open file for counting number of rows and columns
+		std::ifstream infile(fileName, std::ifstream::in);
+		if (!infile.is_open()) {
+			okOpen = false;
+        } else {
+			// Read in first row of data into line
+			std::string line;
+			if (hasLabelRow) {
+				std::getline(infile, line);
+				rows++;
+			}
+			std::getline(infile, line);
+			rows++;
+
+			// Count number of values in the first row to determine num columns
+			// TODO: make this work with non number labels
+			std::stringstream ss(line);
+			double temp;
+			while (ss >> temp) {
+				cols++;
+			}
+			while(std::getline(infile, line)) {
+				// Ignore empty lines to be more forgiving of minor formatting mistakes
+				if (line.compare("") != 0)
+					rows++;
+			}
+		}
+		infile.close();
+	}
+	// Check there was no problem with the file
+	MPI_Bcast(&okOpen, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
+	if (!okOpen) {
+		return false;
+	}
+
+	// Broadcast rows and columns
+	MPI_Bcast(&rows, 1, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&cols, 1, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
+
+	this->_numExamples = rows - ((unsigned int)hasLabelRow);
+	this->_dimensions = cols - ((unsigned int)hasLabelColumn);
+	
+	// Initialize feature maximums and minimums
+	this->_featureMaxes = (double *)malloc(sizeof(double) * this->_dimensions);
+	this->_featureMins = (double*)malloc(sizeof(double) * this->_dimensions);
+	for(int i =0; i < this->_dimensions; i++){
+		this->_featureMaxes[i] = -std::numeric_limits<double>::max();
+		this->_featureMins[i] = std::numeric_limits<double>::max();
+	}
+
+	// Calculate starting position
+	int read_count = this->_numExamples / this->_numProcs;
+	int startRow = ((this->_numExamples / this->_numProcs) * this->_rank);
+	// Adjust for remainder of examples
+	if (this->_rank == this->_numProcs - 1) {
+		read_count += (this->_numExamples % this->_numProcs);
+	}
+	this->_numExamples = read_count;
+
+	// Prepare for reading in assigned chunk
+	bool readOk = true;
+	std::fstream infile(fileName, std::ifstream::in); // Assume because it opened for rank 0 it will open for all
+    std::fstream& procfile = GotoLine(infile, startRow);
+	this->_trainData = (double *)malloc(this->_numExamples * this->_dimensions * sizeof(double));
+
+	// Read in assigned portion
+	int procSectionLineNum = 0;
+	std::string line;
+	while(procSectionLineNum < read_count && std::getline(procfile, line)) {
+        if (line.compare("") != 0) {
+			std::stringstream ss(line);
+			double temp;
+			int cols_count = 0;
+			// Read line into train data
+			while (ss >> temp && cols_count < this->_dimensions) {
+				this->_trainData[procSectionLineNum * this->_dimensions + cols_count] = temp;
+				if (temp > this->_featureMaxes[cols_count]) {
+					this->_featureMaxes[cols_count] = temp;
+				}
+				if (temp < this->_featureMins[cols_count]) {
+					this->_featureMins[cols_count] = temp;
+				}
+				cols_count++;
+			}
+			// If the line finished reading early then the data is not of a consistent dimension
+			if (cols_count != this->_dimensions) {
+				readOk = false;
+			}
+			procSectionLineNum++;
+		}
+		if (!readOk)
+			break;
+	}
+	// If it didn't read enough lines then the data is not properly formatted
+	if (procSectionLineNum != this->_numExamples) {
+		readOk = false;
+		return false;
+	}
+
+	// Check that all the threads read their data properly
+	bool allReadOk;
+	MPI_Barrier(MPI_COMM_WORLD);
+	MPI_Allreduce(&readOk, &allReadOk, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
+	// If any process failed to read the process report it and discharge any allocated memory
+	if (!allReadOk) {
+		destroy_train_data();
+		std::cout << "Error reading input file: Unable to read input file, check to make sure the input is properly formatted" << std::endl;
+		return false;
+	}
+
+	// Find the true feature maxes and true feature mins
+	double *globalMaxes = (double *)malloc(sizeof(double) * this->_dimensions);
+	double *globalMins = (double*)malloc(sizeof(double) * this->_dimensions);
+	MPI_Allreduce(this->_featureMaxes, globalMaxes, this->_dimensions, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+	MPI_Allreduce(this->_featureMins, globalMins, this->_dimensions, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+
+	// Free pre reduction maxes and mins
+	free(this->_featureMaxes);
+	free(this->_featureMins);
+	this->_featureMaxes = globalMaxes;
+	this->_featureMins = globalMins;
+
+	return true;
+}
+
+void SOM::destroy_train_data() {
+	free(this->_trainData);
+	free(this->_featureMaxes);
+	free(this->_featureMins);
+
+	this->_trainData = NULL;
+	this->_featureMaxes = NULL;
+	this->_featureMins = NULL;
+}
+
+void SOM::train_data(unsigned int epochs, unsigned int map_seed, int num_gpus) {
+    this->_numEpochs = epochs;
+    this->_mapSeed = map_seed;
+
+    this->_numGPUs = num_gpus;
+    this->_gpus = NULL;
+
+    this->trainData();
+}
+
+void SOM::train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, int gpu_num_offset) {
+    this->_numEpochs = epochs;
+    this->_mapSeed = map_seed;
+
+    this->_numGPUs = num_gpus;
+    this->_gpus = (int *)malloc(this->_numGPUs * sizeof(double));
+    for(int i = 0; i < this->_numGPUs; i++) {
+        this->_gpus[i] = i + gpu_num_offset;
+    }
+
+    this->trainData();
+}
+
+void SOM::train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, int* gpus_assigned) {
+    this->_numEpochs = epochs;
+    this->_mapSeed = map_seed;
+
+    this->_numGPUs = num_gpus;
+    this->_gpus = (int *)malloc(this->_numGPUs * sizeof(double));
+    for(int i = 0; i < this->_numGPUs; i++) {
+        this->_gpus[i] = gpus_assigned[i];
+    }
+
+    this->trainData();
+}
+
+int SOM::get_num_gpus() {
+	return this->_numGPUs;
 }
 
 /*
 	Train the SOM using a set of training data over a given number of epochs with a given learning rate
 */
-void SOM::train_data(double *trainData, unsigned int num_examples, unsigned int dimensions, int epochs, double initial_learning_rate)
-{
-	this->_dimensions = dimensions;
-	// Normalize data (to be within 0 to 1)
-	normalizeData(trainData, num_examples);
+void SOM::trainData(){
+	// Check that the training data has been loaded in
+	if (this->_trainData == NULL) {
+		std::cout << "Train data not yet initialized in SOM" << std::endl;
+		return;
+	}
 
-	// Randomly initialize codebook
-	this->_weights = (double *)malloc(_width * _height * _dimensions * sizeof(double));
-	for (int i = 0; i < _width; i++) {
-		for (int j = 0; j < _height; j++) {
-			for (int d = 0; d < _dimensions; d++) {
-				this->_weights[calcIndex(i,j,d)] = randWeight();
+	this->_mapSize = this->_width * this->_height;
+
+    normalizeData(this->_trainData);
+	// Establish multi gpu setup on current node
+	// TODO: Add num gpus option
+	initMultiGPUSetup();
+
+	this->_initial_map_radius = this->_width < this->_height ? ((double)this->_width) / 2.0 : ((double)this->_height) / 2.0;
+	this->_time_constant = double(this->_numEpochs) / log(this->_initial_map_radius);
+
+	this->_currentEpoch = 0;
+	#pragma omp parallel 
+	{
+		int gpu = omp_get_thread_num();
+		for(int curEpoch = 0; curEpoch < this->_numEpochs; curEpoch++) {
+			if (gpu == 0) {
+				// Set the current epoch for the whole proc's SOM on the first thread
+				this->_currentEpoch = curEpoch;
+				// Calculate current neighborhood radius
+				this->_neighborhood_radius = this->_initial_map_radius * exp(-((double)(this->_currentEpoch))/this->_time_constant);
+
+				// Wait for all other nodes to start the epoch
+				MPI_Barrier(MPI_COMM_WORLD);
+
+				// Send out the map on proc 0
+				MPI_Bcast(this->_weights, this->_mapSize * this->_dimensions, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+			}
+			// Wait for proc allocated to first gpu to have correct map
+			#pragma omp barrier
+
+			// Update gpu copies of the map
+			updateGPUCodebook(gpu);
+
+			// Train a single epoch on all chosen gpus
+			trainOneEpochOneGPU(gpu);
+
+			#pragma omp barrier
+
+			// Reduce numerators and denominators across gpus on proc
+			int step = 0;
+			while((1 << step) < this->_numGPUs) {
+				if (gpu % (1 << (step + 1)) == 0) {
+					int otherGPU = gpu + (1 << step);
+					if (otherGPU < this->_numGPUs) {
+						for (int i = 0; i < this->_mapSize; i++) {
+							this->_gdenom[gpu][i] += this->_gdenom[otherGPU][i];
+							for (int d = 0; d < this->_dimensions; d++) {
+								this->_gnumer[gpu][d*this->_mapSize + i] += this->_gnumer[otherGPU][d*this->_mapSize + i];
+							}
+						}
+					}
+				}
+				#pragma omp barrier
+				step++;
+			}
+			if (gpu == 0) {
+				memcpy(this->_denom, this->_gdenom[0], this->_mapSize * sizeof(double));
+				memcpy(this->_numer, this->_gnumer[0], this->_mapSize * this->_dimensions * sizeof(double));
+
+				// Reduce numerators and denominators across all procs
+				MPI_Reduce(this->_numer, this->_global_numer, this->_mapSize * this->_dimensions, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+				MPI_Reduce(this->_denom, this->_global_denom, this->_mapSize, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+				
+				// Update codebook/map
+				if (this->_rank == 0) {
+					// Recalculate weights with new numerators and denominators
+					for (int i = 0; i < this->_mapSize; i++) {
+						for (int d = 0; d < this->_dimensions; d++) {
+							this->_weights[d*this->_mapSize + i] = this->_numer[d*this->_mapSize + i] / this->_denom[i];
+						}
+					}
+				}
 			}
 		}
 	}
 
-	// Calc initial map radius
-	double initial_map_radius = _width < _height ? ((double)_width) / 2.0 : ((double)_height) / 2.0;
-	double time_constant = double(epochs) / log(initial_map_radius);
-
-	double* D = (double *)malloc(num_examples * _width * _height * sizeof(double));
-	double* m_sq = (double *)malloc(_width * _height * sizeof(double));
-	double* x_sq = (double *)malloc(num_examples * sizeof(double));
-	int* BMUs = (int *)malloc(num_examples * sizeof(int));
-	double* H = (double *)malloc(num_examples * _width * _height * sizeof(double));
-	double* numerators = (double *)malloc(_width * _height * _dimensions * sizeof(double));
-	double* denominators = (double *)malloc(_width * _height * sizeof(double));
-
-	double neighborhood_radius;
-	for(int epoch = 0; epoch < epochs; epoch++) {
-		//learning_rate = initial_learning_rate * exp(-double(epoch)/time_constant);
-		neighborhood_radius = initial_map_radius * exp(-double(epoch)/time_constant);
-
-		// Find BMUs for every input instance
-		// D = X_sq - 2X^TM + M_sq
-		// D (xdn * nn)
-		
-		// Calc m_sq
-		SqDists(this->_weights, _width * _height, _dimensions, m_sq);
-
-		// Calc x_sq
-		#pragma omp parallel
-		SqDists(trainData, num_examples, _dimensions, x_sq);
-
-		#pragma omp parallel for
-		for (int j = 0; j < num_examples; j++) {
-			for (int i = 0; i < _width * _height; i++) {
-				// Calc x^Tm
-				double xm = 0;
-				for (int d = 0; d < _dimensions; d++) {
-					xm += trainData[j * _dimensions + d] * this->_weights[i * _dimensions + d];
-				}
-				// Combine all
-				D[j * _width * _height + i] = x_sq[j] - 2 * xm + m_sq[i];
-			}
-		}
-
-		// BMU index of each training instance
-		for (int j = 0; j < num_examples; j++) {
-			BMUs[j] = 0;
-			for (int i = 1; i < _width * _height; i++) {
-				if (D[j * _width * _height + i] < D[j * _width * _height + BMUs[j]]) {
-					BMUs[j] = i;
-				}
-			}
-		}
-
-		// Calc gaussian function 
-		// (num_examples x num nodes)
-		#pragma omp parallel for
-		for (int j = 0; j < num_examples; j++) {
-			for (int i = 0; i < _width * _height; i++) {
-				H[j*_width*_height + i] = h(j, i, initial_map_radius, neighborhood_radius, BMUs);
-			}
-		}
-
-		// Left multiply H by a num_examples dimensional vector of ones
-		for (int i = 0; i < _width * _height; i++) {
-			denominators[i] = 0.0;
-			for (int j = 0; j < num_examples; j++) {
-				denominators[i] += H[j*_width*_height + i];
-			}
-		}
-
-		#pragma omp parallel for
-		for (int i = 0; i < _width * _height; i++) {
-			for (int d = 0; d < _dimensions; d++) {
-				numerators[i * _dimensions + d] = 0.0;
-				for (int j = 0; j < num_examples; j++) {
-					numerators[i*_dimensions + d] += H[j*_width*_height + i] * trainData[j*_dimensions + d];
-				}
-			}
-		}
-
-		// Update codebook
-		#pragma omp parallel for
-		for (int i = 0; i < _width * _height; i++) {
-			for (int d = 0; d < _dimensions; d++) {
-				this->_weights[i*_dimensions + d] = numerators[i*_dimensions + d]/denominators[i];
-			}
+	// Perform column major to row major order on weights matrix
+	double *tempWeights = (double *)malloc(this->_mapSize * this->_dimensions * sizeof(double));
+	for (int i = 0; i < this->_mapSize; i++) {
+		for (int d = 0; d < this->_dimensions; d++) {
+			tempWeights[i*this->_dimensions + d] = this->_weights[d*this->_mapSize + i];
 		}
 	}
+	free(this->_weights);
+	this->_weights = tempWeights;
 
-	free(D);
-	free (m_sq);
-	free (x_sq);
-	free(H);
-	free(BMUs);
-	free(numerators);
-	free(denominators);
+	freeGPUMemory();
+
+	free(this->_GPU_EXAMPLES);
+	free(this->_GPU_OFFSET);
+	free(this->_handles);
+	free(this->_d_train);
+	free(this->_d_weights);
+	free(this->_d_numer);
+	free(this->_d_denom);
+	free(this->_gnumer);
+	free(this->_gdenom);
+	free(this->_numer);
+	free(this->_denom);
+	free(this->_global_numer);
+	free(this->_global_denom);
 }
 
 /*
@@ -152,10 +388,37 @@ void SOM::save_weights(std::ostream &out)
 	}
 }
 
+std::fstream& SOM::GotoLine(std::fstream& file, unsigned int num){
+    file.seekg(std::ios::beg);
+    for(int i=0; i < num; i++){
+        file.ignore(std::numeric_limits<std::streamsize>::max(),'\n');
+    }
+    return file;
+}
+
+void SOM::printDoubles(double *doubleList, unsigned int numDoubles, unsigned int numLines)
+{
+	unsigned int numPerLine = numDoubles/numLines;
+	unsigned int counter = 0;
+	while(counter < numDoubles)
+	{
+		for (int j = 0; j< numPerLine; j++)
+		{
+			std::cout << doubleList[counter] << " ";
+			counter++;
+		}
+		std::cout << std::endl;
+	}
+}
+
+//----------------------------------------------------
+//	private SOM functions
+//----------------------------------------------------
+
 /*
 	Load a trained SOM that was saved using the same algorithm as save_weights from an input stream
 */
-void SOM::load_weights(std::istream &in)
+void SOM::loadWeights(std::istream &in)
 {
 	// Load SOM dimensions first
 	in >> this->_width >> this->_height;
@@ -193,7 +456,7 @@ void SOM::load_weights(std::istream &in)
 /*
 	Normalizes given data to be between 0 and 1 for each feature
 */
-void SOM::normalizeData(double *trainData, int num_examples)
+void SOM::normalizeData(double *trainData)
 {
 	// Find the max and min value for each feature then use it to normalize the feature
 	this->_featureMaxes = new double[this->_dimensions];
@@ -202,71 +465,35 @@ void SOM::normalizeData(double *trainData, int num_examples)
 	{
 		this->_featureMaxes[d] = -std::numeric_limits<double>::max();
 		this->_featureMins[d] = std::numeric_limits<double>::max();
-		for (int i = 0; i < num_examples; i++)
+		for (int i = 0; i < this->_numExamples; i++)
 		{
-			if (trainData[i*_dimensions + d] > this->_featureMaxes[d]) {
+			if (trainData[i*this->_dimensions + d] > this->_featureMaxes[d]) {
 				this->_featureMaxes[d] = trainData[i*_dimensions + d];
 			}
-			if (trainData[i*_dimensions + d] < this->_featureMins[d]) {
-				this->_featureMins[d] = trainData[i*_dimensions + d];
+			if (trainData[i*this->_dimensions + d] < this->_featureMins[d]) {
+				this->_featureMins[d] = trainData[i*this->_dimensions + d];
 			}
 		}
-		for (int i = 0; i < num_examples; i++) {
-			trainData[i*_dimensions + d] = (trainData[i*_dimensions + d] - this->_featureMins[d])/(this->_featureMaxes[d]-this->_featureMins[d]);
+		for (int i = 0; i < this->_numExamples; i++) {
+			if ((this->_featureMaxes[d] - this->_featureMins[d]) <= std::numeric_limits<double>::min())
+			{
+				trainData[i*_dimensions + d] = 0;
+			}
+			else {
+				trainData[i*_dimensions + d] = (trainData[i*_dimensions + d] - this->_featureMins[d])/(this->_featureMaxes[d]-this->_featureMins[d]);
+			}
 		}
 	}
 }
 
 /*
-	Update a node's weights to better match a given example
+	Calculate the index of a weight at node (x,y), dimension = d in the weights array
 */
-void SOM::updateNodeWeights(int x, int y, double* example, double learning_rate, double influence) {
-	for (int d = 0; d < this->_dimensions; d++)
-	{
-		this->_weights[calcIndex(x,y,d)] += influence * learning_rate * (example[d] - this->_weights[calcIndex(x,y,d)]);
-	}
-}
-
-/*
-	Generate a vector of size numFeatures
-*/
-double SOM::randWeight()
-{
-	return (double)rand() / (RAND_MAX);
-}
-
 int SOM::calcIndex(int x, int y, int d) {
 	return (x*_height + y)*_dimensions + d;
 }
 
-/*
-	Calculates the euclidean distance between two vectors
-*/
-double SOM::EucDist(double* v1, double* v2) {
-	double total = 0.0;
-	for (int i = 0; i < this->_dimensions; i++) {
-		total += (v1[i] - v2[i])*(v1[i] - v2[i]);
-	}
-	return sqrt(total);
-}
-
-void SOM::SqDists(double* m, int loop, int dim, double* output) {
-	#pragma omp for
-	for (int i = 0; i < loop; i++) {
-		output[i] = 0;
-		for (int d = 0; d < dim; d++) {
-			output[i] += m[i * dim + d] * m[i * dim + d]; 
-		}
-	}
-}
-
-double SOM::h(int j, int i, double initial_radius, double radius, int* BMUs) {
-	int i_y = i % _height;
-	int i_x = (i - i_y) / _height;
-
-	// Get BMU coord
-	int j_y = BMUs[j] % _height;
-	int j_x = (BMUs[j] - j_y) / _height;
-
-	return initial_radius * exp(-(double)((j_x - i_x) * (j_x - i_x) + (j_y - i_y) * (j_y - i_y))/(radius * radius));
+double SOM::randWeight()
+{
+	return (double)rand() / (RAND_MAX);
 }

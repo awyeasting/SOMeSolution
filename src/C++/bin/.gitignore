@@ -1,3 +1,6 @@
+*.lib
 *.a
+*.obj
 *.o
 *.exe
+*.exp
