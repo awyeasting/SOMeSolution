@@ -8,8 +8,8 @@
  * the Software Package Data Exchange.
  */
 
-#ifndef SOM_H
-#define SOM_H
+#ifndef DSOM_H
+#define DSOM_H
 
 #include <chrono>
 #include <fstream>
@@ -27,11 +27,11 @@
 
 #define GPU_BASED_CODEBOOK_INIT false
 
-class SOM
+class DSOM
 {
 public:
-	SOM(unsigned int width, unsigned int height);
-	SOM(std::istream &in);
+	DSOM(unsigned int width, unsigned int height);
+	DSOM(std::istream &in);
 
 	void gen_train_data(unsigned int examples, unsigned int dimensions, unsigned int seedValue);
 	bool load_train_data(std::string &fileName, bool hasLabelRow, bool hasLabelColumn);
@@ -46,6 +46,7 @@ public:
 	int get_num_gpus();
 
 	std::fstream& GotoLine(std::fstream& file, unsigned int num);
+	void printDoubles(double *doubleList, unsigned int numDoubles, unsigned int numLines);
 private:
 
 	int _rank;
@@ -66,38 +67,38 @@ private:
 	unsigned int _dimensions;
 	unsigned int _mapSeed;
 
-	float _initial_map_radius;
-	float _neighborhood_radius;
-	float _time_constant;
-	float* _weights;
-	float* _trainData;
-	float* _featureMaxes;
-	float* _featureMins;
+	double _initial_map_radius;
+	double _neighborhood_radius;
+	double _time_constant;
+	double* _weights;
+	double* _trainData;
+	double* _featureMaxes;
+	double* _featureMins;
 
 	// CUBLAS handles (per device)
 	cublasHandle_t* _handles;
 	// Local node's all gpu reduced numerators and denominators
-	float *_numer;
-	float *_denom;
+	double *_numer;
+	double *_denom;
 	// Global all node all gpu reduced numerators and denominators
-	float *_global_numer;
-	float *_global_denom;
+	double *_global_numer;
+	double *_global_denom;
 	// GPU copies of training data and weights
-	float **_d_train;
-	float **_d_weights;
+	double **_d_train;
+	double **_d_weights;
 	// GPU copies of numerators and denominators
-	float **_d_numer;
-	float **_d_denom;
+	double **_d_numer;
+	double **_d_denom;
 	// CPU copies of GPU numerators and denominators
-	float **_gnumer;
-	float **_gdenom;
+	double **_gnumer;
+	double **_gdenom;
 	// Number of examples per gpu
 	unsigned int *_GPU_EXAMPLES;
 	// Training data offset per gpu
 	unsigned int *_GPU_OFFSET;
 
 	void loadWeights(std::istream &in);
-	void normalizeData(float *trainData);
+	void normalizeData(double *trainData);
 	int calcIndex(int x, int y, int d);
 
 	void trainOneEpochOneGPU(int gpu);
@@ -120,7 +121,7 @@ private:
 
 	void freeGPUMemory();
 
-	static float randWeight();
+	static double randWeight();
 };
 
 #endif

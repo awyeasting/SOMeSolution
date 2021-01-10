@@ -57,14 +57,14 @@ void SOM::gen_train_data(unsigned int num_examples, unsigned int dimensions, uns
 	this->_dimensions = dimensions;
 	// TODO: Switch to compute based examples distribution
 	this->_numExamples = num_examples / this->_numProcs;
-	this->_trainData = new double [this->_numExamples * this->_dimensions];
+	this->_trainData = new float [this->_numExamples * this->_dimensions];
 	srand(seedValue + this->_rank);
 	for (int i = 0; i < this->_numExamples; i++)
 	{
 		int rowMod = (this->_numExamples - i - 1) * this->_dimensions;
 		for (int d = 0; d < this->_dimensions; d++)
 		{
-			double weight = SOM::randWeight();
+			float weight = SOM::randWeight();
 			this->_trainData[rowMod + d] = weight;
 		}
 	}
@@ -96,7 +96,7 @@ bool SOM::load_train_data(std::string &fileName, bool hasLabelRow, bool hasLabel
 			// Count number of values in the first row to determine num columns
 			// TODO: make this work with non number labels
 			std::stringstream ss(line);
-			double temp;
+			float temp;
 			while (ss >> temp) {
 				cols++;
 			}
@@ -122,11 +122,11 @@ bool SOM::load_train_data(std::string &fileName, bool hasLabelRow, bool hasLabel
 	this->_dimensions = cols - ((unsigned int)hasLabelColumn);
 	
 	// Initialize feature maximums and minimums
-	this->_featureMaxes = (double *)malloc(sizeof(double) * this->_dimensions);
-	this->_featureMins = (double*)malloc(sizeof(double) * this->_dimensions);
+	this->_featureMaxes = (float *)malloc(sizeof(float) * this->_dimensions);
+	this->_featureMins = (float*)malloc(sizeof(float) * this->_dimensions);
 	for(int i =0; i < this->_dimensions; i++){
-		this->_featureMaxes[i] = -std::numeric_limits<double>::max();
-		this->_featureMins[i] = std::numeric_limits<double>::max();
+		this->_featureMaxes[i] = -std::numeric_limits<float>::max();
+		this->_featureMins[i] = std::numeric_limits<float>::max();
 	}
 
 	// Calculate starting position
@@ -142,7 +142,7 @@ bool SOM::load_train_data(std::string &fileName, bool hasLabelRow, bool hasLabel
 	bool readOk = true;
 	std::fstream infile(fileName, std::ifstream::in); // Assume because it opened for rank 0 it will open for all
     std::fstream& procfile = GotoLine(infile, startRow);
-	this->_trainData = (double *)malloc(this->_numExamples * this->_dimensions * sizeof(double));
+	this->_trainData = (float *)malloc(this->_numExamples * this->_dimensions * sizeof(float));
 
 	// Read in assigned portion
 	int procSectionLineNum = 0;
@@ -150,7 +150,7 @@ bool SOM::load_train_data(std::string &fileName, bool hasLabelRow, bool hasLabel
 	while(procSectionLineNum < read_count && std::getline(procfile, line)) {
         if (line.compare("") != 0) {
 			std::stringstream ss(line);
-			double temp;
+			float temp;
 			int cols_count = 0;
 			// Read line into train data
 			while (ss >> temp && cols_count < this->_dimensions) {
@@ -190,10 +190,10 @@ bool SOM::load_train_data(std::string &fileName, bool hasLabelRow, bool hasLabel
 	}
 
 	// Find the true feature maxes and true feature mins
-	double *globalMaxes = (double *)malloc(sizeof(double) * this->_dimensions);
-	double *globalMins = (double*)malloc(sizeof(double) * this->_dimensions);
-	MPI_Allreduce(this->_featureMaxes, globalMaxes, this->_dimensions, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-	MPI_Allreduce(this->_featureMins, globalMins, this->_dimensions, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+	float *globalMaxes = (float *)malloc(sizeof(float) * this->_dimensions);
+	float *globalMins = (float*)malloc(sizeof(float) * this->_dimensions);
+	MPI_Allreduce(this->_featureMaxes, globalMaxes, this->_dimensions, MPI_FLOAT, MPI_MAX, MPI_COMM_WORLD);
+	MPI_Allreduce(this->_featureMins, globalMins, this->_dimensions, MPI_FLOAT, MPI_MIN, MPI_COMM_WORLD);
 
 	// Free pre reduction maxes and mins
 	free(this->_featureMaxes);
@@ -229,7 +229,7 @@ void SOM::train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, i
     this->_mapSeed = map_seed;
 
     this->_numGPUs = num_gpus;
-    this->_gpus = (int *)malloc(this->_numGPUs * sizeof(double));
+    this->_gpus = (int *)malloc(this->_numGPUs * sizeof(float));
     for(int i = 0; i < this->_numGPUs; i++) {
         this->_gpus[i] = i + gpu_num_offset;
     }
@@ -242,7 +242,7 @@ void SOM::train_data(unsigned int epochs, unsigned int map_seed, int num_gpus, i
     this->_mapSeed = map_seed;
 
     this->_numGPUs = num_gpus;
-    this->_gpus = (int *)malloc(this->_numGPUs * sizeof(double));
+    this->_gpus = (int *)malloc(this->_numGPUs * sizeof(float));
     for(int i = 0; i < this->_numGPUs; i++) {
         this->_gpus[i] = gpus_assigned[i];
     }
@@ -271,8 +271,8 @@ void SOM::trainData(){
 	// TODO: Add num gpus option
 	initMultiGPUSetup();
 
-	this->_initial_map_radius = this->_width < this->_height ? ((double)this->_width) / 2.0 : ((double)this->_height) / 2.0;
-	this->_time_constant = double(this->_numEpochs) / log(this->_initial_map_radius);
+	this->_initial_map_radius = this->_width < this->_height ? ((float)this->_width) / 2.0 : ((float)this->_height) / 2.0;
+	this->_time_constant = float(this->_numEpochs) / log(this->_initial_map_radius);
 
 	this->_currentEpoch = 0;
 	#pragma omp parallel 
@@ -283,13 +283,13 @@ void SOM::trainData(){
 				// Set the current epoch for the whole proc's SOM on the first thread
 				this->_currentEpoch = curEpoch;
 				// Calculate current neighborhood radius
-				this->_neighborhood_radius = this->_initial_map_radius * exp(-((double)(this->_currentEpoch))/this->_time_constant);
+				this->_neighborhood_radius = this->_initial_map_radius * exp(-((float)(this->_currentEpoch))/this->_time_constant);
 
 				// Wait for all other nodes to start the epoch
 				MPI_Barrier(MPI_COMM_WORLD);
 
 				// Send out the map on proc 0
-				MPI_Bcast(this->_weights, this->_mapSize * this->_dimensions, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+				MPI_Bcast(this->_weights, this->_mapSize * this->_dimensions, MPI_FLOAT, 0, MPI_COMM_WORLD);
 			}
 			// Wait for proc allocated to first gpu to have correct map
 			#pragma omp barrier
@@ -320,12 +320,12 @@ void SOM::trainData(){
 				step++;
 			}
 			if (gpu == 0) {
-				memcpy(this->_denom, this->_gdenom[0], this->_mapSize * sizeof(double));
-				memcpy(this->_numer, this->_gnumer[0], this->_mapSize * this->_dimensions * sizeof(double));
+				memcpy(this->_denom, this->_gdenom[0], this->_mapSize * sizeof(float));
+				memcpy(this->_numer, this->_gnumer[0], this->_mapSize * this->_dimensions * sizeof(float));
 
 				// Reduce numerators and denominators across all procs
-				MPI_Reduce(this->_numer, this->_global_numer, this->_mapSize * this->_dimensions, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-				MPI_Reduce(this->_denom, this->_global_denom, this->_mapSize, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+				MPI_Reduce(this->_numer, this->_global_numer, this->_mapSize * this->_dimensions, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+				MPI_Reduce(this->_denom, this->_global_denom, this->_mapSize, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
 				
 				// Update codebook/map
 				if (this->_rank == 0) {
@@ -341,7 +341,7 @@ void SOM::trainData(){
 	}
 
 	// Perform column major to row major order on weights matrix
-	double *tempWeights = (double *)malloc(this->_mapSize * this->_dimensions * sizeof(double));
+	float *tempWeights = (float *)malloc(this->_mapSize * this->_dimensions * sizeof(float));
 	for (int i = 0; i < this->_mapSize; i++) {
 		for (int d = 0; d < this->_dimensions; d++) {
 			tempWeights[i*this->_dimensions + d] = this->_weights[d*this->_mapSize + i];
@@ -396,21 +396,6 @@ std::fstream& SOM::GotoLine(std::fstream& file, unsigned int num){
     return file;
 }
 
-void SOM::printDoubles(double *doubleList, unsigned int numDoubles, unsigned int numLines)
-{
-	unsigned int numPerLine = numDoubles/numLines;
-	unsigned int counter = 0;
-	while(counter < numDoubles)
-	{
-		for (int j = 0; j< numPerLine; j++)
-		{
-			std::cout << doubleList[counter] << " ";
-			counter++;
-		}
-		std::cout << std::endl;
-	}
-}
-
 //----------------------------------------------------
 //	private SOM functions
 //----------------------------------------------------
@@ -429,15 +414,15 @@ void SOM::loadWeights(std::istream &in)
 	std::getline(in, line);
 	std::getline(in, line);
 	std::stringstream ss(line);
-	std::vector<double> line1;
-	double temp;
+	std::vector<float> line1;
+	float temp;
 	while (ss >> temp) {
 		this->_dimensions++;
 		line1.push_back(temp);
 	}
 
 	// Put first line of matrix into an array in the 3d weights array
-	this->_weights = new double[_width * _height * _dimensions];
+	this->_weights = new float[_width * _height * _dimensions];
 	for (int k = 0; k < this->_dimensions; k++) {
 		_weights[calcIndex(0,0,_dimensions - k - 1)] = line1.back();
 		line1.pop_back();
@@ -456,15 +441,15 @@ void SOM::loadWeights(std::istream &in)
 /*
 	Normalizes given data to be between 0 and 1 for each feature
 */
-void SOM::normalizeData(double *trainData)
+void SOM::normalizeData(float *trainData)
 {
 	// Find the max and min value for each feature then use it to normalize the feature
-	this->_featureMaxes = new double[this->_dimensions];
-	this->_featureMins = new double[this->_dimensions];
+	this->_featureMaxes = new float[this->_dimensions];
+	this->_featureMins = new float[this->_dimensions];
 	for (int d = 0; d < this->_dimensions; d++)
 	{
-		this->_featureMaxes[d] = -std::numeric_limits<double>::max();
-		this->_featureMins[d] = std::numeric_limits<double>::max();
+		this->_featureMaxes[d] = -std::numeric_limits<float>::max();
+		this->_featureMins[d] = std::numeric_limits<float>::max();
 		for (int i = 0; i < this->_numExamples; i++)
 		{
 			if (trainData[i*this->_dimensions + d] > this->_featureMaxes[d]) {
@@ -475,7 +460,7 @@ void SOM::normalizeData(double *trainData)
 			}
 		}
 		for (int i = 0; i < this->_numExamples; i++) {
-			if ((this->_featureMaxes[d] - this->_featureMins[d]) <= std::numeric_limits<double>::min())
+			if ((this->_featureMaxes[d] - this->_featureMins[d]) <= std::numeric_limits<float>::min())
 			{
 				trainData[i*_dimensions + d] = 0;
 			}
@@ -493,7 +478,7 @@ int SOM::calcIndex(int x, int y, int d) {
 	return (x*_height + y)*_dimensions + d;
 }
 
-double SOM::randWeight()
+float SOM::randWeight()
 {
-	return (double)rand() / (RAND_MAX);
+	return (float)rand() / (RAND_MAX);
 }
